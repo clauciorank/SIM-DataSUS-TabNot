@@ -1,0 +1,6 @@
+# App
+streamlit>=1.28.0
+pandas
+duckdb
+plotly
+pysus
