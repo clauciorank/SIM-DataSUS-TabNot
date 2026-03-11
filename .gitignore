@@ -1,6 +1,7 @@
 # Dados e artefatos gerados (não versionar)
 *.parquet
 *.duckdb
+*.dbf
 data/config.db
 
 # Python
