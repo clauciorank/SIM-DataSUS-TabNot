@@ -61,12 +61,13 @@ def ensure_silver_legendas(silver_path: Optional[Path] = None) -> None:
             ('5', 'União estável'), ('9', 'Ignorado'), ('0', 'Ignorado')
         ) AS t(codigo, descricao)
     """)
+    # CID-10 oficial (OMS/Datasus): uma linha por letra; descrição do capítulo pode repetir (ex.: A e B = mesmo capítulo).
     write_parquet("legenda_cid10_capitulo", """
         CREATE OR REPLACE TABLE legenda_cid10_capitulo AS SELECT * FROM (VALUES
             ('A', 'Doenças infecciosas e parasitárias (A00-B99)'),
             ('B', 'Doenças infecciosas e parasitárias (A00-B99)'),
             ('C', 'Neoplasias (C00-D48)'),
-            ('D', 'Neoplasias e doenças do sangue (C00-D89)'),
+            ('D', 'Doenças do sangue e dos órgãos hematopoéticos e alguns transtornos imunitários (D50-D89)'),
             ('E', 'Doenças endócrinas, nutricionais e metabólicas (E00-E90)'),
             ('F', 'Transtornos mentais e comportamentais (F00-F99)'),
             ('G', 'Doenças do sistema nervoso (G00-G99)'),
@@ -98,21 +99,37 @@ def ensure_cid10_causa_legenda(silver_path: Optional[Path] = None) -> None:
     """
     Garante que o parquet legenda_cid10_causa (código CID-10 -> descrição) exista na silver.
     Usa a tabela CID10 do Datasus via pysus (download sob demanda).
-    Se o download falhar, cria um parquet vazio (codigo, descricao) para o join na gold não quebrar.
+    Se o arquivo existir mas estiver vazio, recria (re-download). Colunas normalizadas: codigo, descricao.
     """
     silver_path = Path(silver_path or SILVER_PATH)
     silver_path.mkdir(parents=True, exist_ok=True)
     out_path = silver_path / "legenda_cid10_causa.parquet"
+    re_download = False
+    if out_path.exists():
+        try:
+            import pandas as pd
+            existing = pd.read_parquet(out_path)
+            if existing is None or len(existing) == 0:
+                re_download = True
+        except Exception:
+            re_download = True
+        if re_download:
+            out_path.unlink(missing_ok=True)
     if out_path.exists():
         return
     try:
         from pysus.online_data.SIM import get_CID10_table
         import pandas as pd
         df = get_CID10_table(cache=True)
-        if "CID10" not in df.columns or "DESCR" not in df.columns:
+        if df is None or df.empty:
             pd.DataFrame(columns=["codigo", "descricao"]).to_parquet(out_path, index=False)
             return
-        legenda = df[["CID10", "DESCR"]].copy()
+        cod_col = "CID10" if "CID10" in df.columns else ("codigo" if "codigo" in df.columns else None)
+        desc_col = "DESCR" if "DESCR" in df.columns else ("descricao" if "descricao" in df.columns else None)
+        if not cod_col or not desc_col:
+            pd.DataFrame(columns=["codigo", "descricao"]).to_parquet(out_path, index=False)
+            return
+        legenda = df[[cod_col, desc_col]].copy()
         legenda.columns = ["codigo", "descricao"]
         legenda["codigo"] = legenda["codigo"].astype(str).str.strip()
         legenda["descricao"] = legenda["descricao"].astype(str).str.strip()
@@ -149,6 +166,9 @@ def build_gold_catalog(
     ensure_silver_legendas(silver_path)
     ensure_cid10_causa_legenda(silver_path)
 
+    from src.data_extraction.cid10_depara import ensure_cid10_depara
+    use_depara = ensure_cid10_depara(silver_path)
+
     o = str(obitos_parquet.resolve()).replace("\\", "/")
     m = str(municipios_parquet.resolve()).replace("\\", "/")
     ls_path = str((silver_path / "legenda_sexo.parquet").resolve()).replace("\\", "/")
@@ -159,6 +179,24 @@ def build_gold_catalog(
     le_path = str((silver_path / "legenda_estado_civil.parquet").resolve()).replace("\\", "/")
     lcid_path = str((silver_path / "legenda_cid10_capitulo.parquet").resolve()).replace("\\", "/")
     lcod_path = str((silver_path / "legenda_cid10_causa.parquet").resolve()).replace("\\", "/")
+    d_path = str((silver_path / "cid10_depara.parquet").resolve()).replace("\\", "/").replace("'", "''")
+
+    # Normalização do código CID-10 para join: com ponto quando 4 caracteres (ex.: A900 -> A90.0)
+    causa_norm = (
+        "CASE WHEN INSTR(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')), '.') > 0 "
+        "THEN TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) "
+        "WHEN LENGTH(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), ''))) = 4 "
+        "THEN SUBSTR(TRIM(CAST(o.CAUSABAS AS VARCHAR)), 1, 3) || '.' || SUBSTR(TRIM(CAST(o.CAUSABAS AS VARCHAR)), 4, 1) "
+        "ELSE TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) END"
+    )
+    if use_depara:
+        cid_join = f"""
+        LEFT JOIN read_parquet('{d_path}') d_cid ON d_cid.codigo = ({causa_norm})
+        """
+        cid_select = "COALESCE(d_cid.capitulo_descricao, lcid.descricao) AS causa_cid10_capitulo_desc,\n            COALESCE(d_cid.descricao, lcod.descricao) AS causa_cid10_desc,"
+    else:
+        cid_join = ""
+        cid_select = "lcid.descricao AS causa_cid10_capitulo_desc,\n            lcod.descricao AS causa_cid10_desc,"
 
     db_path = gold_path / "obitos.duckdb"
     con = duckdb.connect(str(db_path))
@@ -195,8 +233,7 @@ def build_gold_catalog(
             m_ocor.municipio AS municipio_ocorrencia,
             m_ocor.uf AS uf_ocorrencia,
             TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) AS causa_basica,
-            lcid.descricao AS causa_cid10_capitulo_desc,
-            lcod.descricao AS causa_cid10_desc,
+            {cid_select}
             o.CIRCOBITO AS circ_obito,
             lc.descricao AS circunstancia_desc,
             o.PESO AS peso,
@@ -225,6 +262,7 @@ def build_gold_catalog(
             ON lcid.letra = UPPER(SUBSTR(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')), 1, 1))
         LEFT JOIN read_parquet('{lcod_path}') lcod
             ON lcod.codigo = TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), ''))
+        {cid_join}
     """)
 
     # View para análise: mesma base + faixa_etaria calculada em SQL (evita carregar tudo em memória)

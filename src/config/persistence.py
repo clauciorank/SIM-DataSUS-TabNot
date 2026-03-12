@@ -74,3 +74,55 @@ def save_config(filtro_anos: list, filtro_ufs: list) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# Modelo padrão Gemini (melhor quota no free tier)
+DEFAULT_LLM_MODEL_GEMINI = "gemini-3.1-flash-lite-preview"
+DEFAULT_LLM_OLLAMA_BASE_URL = "http://localhost:11434"
+
+
+def load_llm_config() -> dict:
+    """
+    Carrega configuração do LLM.
+    Retorna dict com: api_key, provider ('gemini'|'ollama'), model, ollama_base_url.
+    """
+    try:
+        conn = _get_conn()
+        cur = conn.execute(
+            "SELECT key, value FROM config WHERE key IN ('llm_api_key', 'llm_provider', 'llm_model', 'llm_ollama_base_url')"
+        )
+        rows = dict(cur.fetchall())
+        conn.close()
+        provider = (rows.get("llm_provider") or "gemini").strip() or "gemini"
+        return {
+            "api_key": (rows.get("llm_api_key") or "").strip(),
+            "provider": provider,
+            "model": (rows.get("llm_model") or "").strip() or (DEFAULT_LLM_MODEL_GEMINI if provider == "gemini" else ""),
+            "ollama_base_url": (rows.get("llm_ollama_base_url") or "").strip() or DEFAULT_LLM_OLLAMA_BASE_URL,
+        }
+    except Exception:
+        return {
+            "api_key": "",
+            "provider": "gemini",
+            "model": DEFAULT_LLM_MODEL_GEMINI,
+            "ollama_base_url": DEFAULT_LLM_OLLAMA_BASE_URL,
+        }
+
+
+def save_llm_config(
+    api_key: str,
+    provider: str = "gemini",
+    model: str = "",
+    ollama_base_url: str = "",
+) -> None:
+    """Salva configuração do LLM no SQLite."""
+    conn = _get_conn()
+    provider = (provider or "gemini").strip() or "gemini"
+    model = (model or "").strip() or (DEFAULT_LLM_MODEL_GEMINI if provider == "gemini" else "")
+    ollama_base_url = (ollama_base_url or "").strip() or DEFAULT_LLM_OLLAMA_BASE_URL
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ("llm_api_key", (api_key or "").strip()))
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ("llm_provider", provider))
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ("llm_model", model))
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", ("llm_ollama_base_url", ollama_base_url))
+    conn.commit()
+    conn.close()

@@ -4,3 +4,10 @@ pandas
 duckdb
 plotly
 pysus
+
+# Agente de IA (Consultar com IA)
+# LangGraph: versão estável 0.2.x (API START/END estável); atualize com cuidado
+langgraph>=0.2.70,<0.6
+langchain-core>=0.1
+google-generativeai
+rapidfuzz

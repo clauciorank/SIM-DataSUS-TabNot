@@ -8,11 +8,12 @@ pg_sim_download = st.Page("pages/SIM/SIM_download.py", title="Download de Dados"
 pg_sim_analise = st.Page("pages/SIM/SIM_analise.py", title="Análise Exploratória", icon="📊")
 pg_sim_sql = st.Page("pages/SIM/SIM_semantic.py", title="Editor SQL", icon="📝")
 pg_sim_forecast = st.Page("pages/SIM/SIM_forecast.py", title="Dashboard Mortalidade", icon="📈")
+pg_sim_agent = st.Page("pages/SIM/SIM_agent.py", title="Consultar com IA", icon="💬")
 
 # 2. Agrupamento em "Abas" (Seções) na barra lateral
 navegacao = st.navigation({
     "Configurações": [configuration],
-    "SIM": [pg_sim_download, pg_sim_analise, pg_sim_sql, pg_sim_forecast]
+    "SIM": [pg_sim_download, pg_sim_analise, pg_sim_sql, pg_sim_forecast, pg_sim_agent]
 })
 
 # 3. Execução

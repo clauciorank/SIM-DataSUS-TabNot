@@ -1,6 +1,14 @@
 import streamlit as st
 from datetime import datetime
-from src.config.persistence import load_config, save_config
+from src.config.persistence import (
+    load_config,
+    save_config,
+    load_llm_config,
+    save_llm_config,
+    DEFAULT_LLM_MODEL_GEMINI,
+    DEFAULT_LLM_OLLAMA_BASE_URL,
+)
+from src.config.llm_models import fetch_gemini_models, fetch_ollama_models, GEMINI_FALLBACK_MODELS
 
 st.title("⚙️ Configurações do Sistema")
 st.markdown("---")
@@ -65,6 +73,98 @@ ufs_selecionadas = st.multiselect(
     default=ufs_default,
     key="config_ufs",
 )
+
+st.markdown("---")
+
+# Seção Modelo de linguagem (agente de dados)
+st.subheader("Modelo de linguagem (agente de dados)")
+st.caption("Configure para usar a aba **Consultar com IA**. Gemini 3.1 Flash Lite tem a melhor quota no free tier; Ollama roda local sem limite.")
+
+llm_config = load_llm_config()
+provider = (llm_config.get("provider") or "gemini").strip().lower()
+api_key_current = (llm_config.get("api_key") or "").strip()
+model_current = (llm_config.get("model") or "").strip()
+ollama_base_current = (llm_config.get("ollama_base_url") or DEFAULT_LLM_OLLAMA_BASE_URL).strip()
+
+provider_choice = st.radio(
+    "Provedor",
+    options=["gemini", "ollama"],
+    format_func=lambda x: "Gemini (Google – nuvem)" if x == "gemini" else "Ollama (local)",
+    index=0 if provider == "gemini" else 1,
+    key="config_llm_provider",
+    horizontal=True,
+)
+
+api_key_to_use = ""
+model_choice = model_current or DEFAULT_LLM_MODEL_GEMINI
+ollama_base_to_save = llm_config.get("ollama_base_url") or ""
+
+if provider_choice == "gemini":
+    api_key_input = st.text_input(
+        "Chave API Gemini",
+        value="",
+        type="password",
+        placeholder="Cole aqui a chave do Google AI Studio" if not api_key_current else "••••••••••••",
+        key="config_llm_api_key",
+        help="Obtenha em https://aistudio.google.com/apikey",
+    )
+    api_key_to_use = api_key_input.strip() or api_key_current
+    try:
+        gemini_models = fetch_gemini_models(api_key_to_use) if api_key_to_use else list(GEMINI_FALLBACK_MODELS)
+    except Exception:
+        gemini_models = list(GEMINI_FALLBACK_MODELS)
+    model_default = model_current or DEFAULT_LLM_MODEL_GEMINI
+    default_idx = next((i for i, (mid, _) in enumerate(gemini_models) if mid == model_default), 0)
+    model_choice = st.selectbox(
+        "Modelo Gemini",
+        options=[mid for mid, _ in gemini_models],
+        format_func=lambda mid: next((d for m, d in gemini_models if m == mid), mid),
+        index=min(default_idx, len(gemini_models) - 1) if gemini_models else 0,
+        key="config_llm_model",
+        help="Gemini 3.1 Flash Lite oferece a melhor quota no free tier.",
+    )
+    if api_key_current and not api_key_input.strip():
+        st.info("Uma chave API já está configurada. Digite uma nova acima para substituir e clique em Salvar.")
+else:
+    ollama_base_input = st.text_input(
+        "URL do Ollama",
+        value=ollama_base_current or DEFAULT_LLM_OLLAMA_BASE_URL,
+        placeholder="http://localhost:11434",
+        key="config_ollama_base",
+        help="Deixe padrão se o Ollama está rodando na mesma máquina.",
+    )
+    ollama_base_to_save = (ollama_base_input or "").strip() or DEFAULT_LLM_OLLAMA_BASE_URL
+    try:
+        ollama_models = fetch_ollama_models(ollama_base_to_save)
+    except Exception:
+        ollama_models = []
+    if ollama_models:
+        default_ollama = model_current or (ollama_models[0][0] if ollama_models else "")
+        default_idx_o = next((i for i, (m, _) in enumerate(ollama_models) if m == default_ollama), 0)
+        model_choice = st.selectbox(
+            "Modelo Ollama",
+            options=[m for m, _ in ollama_models],
+            format_func=lambda m: next((d for x, d in ollama_models if x == m), m),
+            index=min(default_idx_o, len(ollama_models) - 1),
+            key="config_llm_model_ollama",
+        )
+    else:
+        model_choice = st.text_input(
+            "Modelo Ollama (nome exato)",
+            value=model_current or "llama3.2",
+            placeholder="llama3.2",
+            key="config_llm_model_ollama_txt",
+            help="Ex.: llama3.2, mistral. Liste com 'ollama list' no terminal. Se o Ollama não estiver rodando, digite o nome do modelo.",
+        )
+
+if st.button("Salvar configuração do modelo", key="config_save_llm"):
+    save_llm_config(
+        api_key=api_key_to_use if provider_choice == "gemini" else (llm_config.get("api_key") or ""),
+        provider=provider_choice,
+        model=(model_choice or "").strip() if model_choice else "",
+        ollama_base_url=ollama_base_to_save if provider_choice == "ollama" else (llm_config.get("ollama_base_url") or ""),
+    )
+    st.success("Configuração do modelo salva. Use a aba Consultar com IA para fazer perguntas.")
 
 st.markdown("---")
 

@@ -3,6 +3,7 @@ Análise exploratória dos dados de óbitos (SIM).
 Otimizado: view v_obitos_analise na gold; filtros e gráficos via SQL (sem carregar tudo em memória).
 """
 import re
+from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from pathlib import Path
 from datetime import date, datetime
@@ -12,16 +13,31 @@ import plotly.graph_objects as go
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 GOLD_DB = PROJECT_ROOT / "data" / "SIM" / "gold" / "obitos.duckdb"
+SILVER_PATH = PROJECT_ROOT / "data" / "SIM" / "silver"
+
+
+def _silver_parquet(name: str) -> str:
+    """Caminho absoluto do parquet na silver para uso no DuckDB read_parquet."""
+    return str((SILVER_PATH / name).resolve()).replace("\\", "/")
 
 SK_APPLIED = "analise_sim_filtros_aplicados"
 SK_COUNT = "analise_sim_count"
 SK_TS = "analise_sim_ts"
 SK_PYRAMID = "analise_sim_pyramid"
 SK_SAMPLE = "analise_sim_sample"
-SK_OPTS_CACHE = "analise_sim_opts_cache"
 SK_TS_GRANULARITY = "analise_sim_ts_granularidade"
 SK_WHERE = "analise_sim_where"
 SK_PARAMS = "analise_sim_params"
+# Cache de opções (evitar chamadas à silver em todo run)
+SK_CACHE_MIN_DATE = "analise_sim_cache_min_date"
+SK_CACHE_MAX_DATE = "analise_sim_cache_max_date"
+SK_CACHE_OPCOES_SEXO = "analise_sim_cache_opcoes_sexo"
+SK_CACHE_UF_LIST = "analise_sim_cache_uf_list"
+SK_CACHE_CAP_LIST = "analise_sim_cache_cap_list"
+SK_CACHE_MUN_LIST = "analise_sim_cache_mun_list"
+SK_CACHE_MUN_UF_KEY = "analise_sim_cache_mun_uf_key"
+SK_CACHE_CAUSAS_LABELS = "analise_sim_cache_causas_labels"
+SK_CACHE_CAUSAS_CAP_KEY = "analise_sim_cache_causas_cap_key"
 
 FAIXAS_ETARIAS = [
     "< 1 ano", "1-4 anos", "5-9 anos", "10-14 anos", "15-19 anos", "20-29 anos",
@@ -60,23 +76,61 @@ def _view_exists(con) -> bool:
         return False
 
 
+def _run_count(where: str, params: list):
+    """Executa count em conexão própria (para uso em thread)."""
+    con = _get_con()
+    try:
+        return con.execute(f"SELECT count(*) FROM {VIEW_ANALISE} WHERE {where}", params).fetchone()[0]
+    finally:
+        con.close()
+
+
+def _run_ts(where: str, params: list, ts_fmt: str):
+    """Executa query da série temporal em conexão própria (para uso em thread)."""
+    con = _get_con()
+    try:
+        return con.execute(
+            f"SELECT strftime(dt_obito, '{ts_fmt}') AS periodo, count(*) AS obitos FROM {VIEW_ANALISE} WHERE {where} GROUP BY 1 ORDER BY 1",
+            params,
+        ).fetchdf()
+    finally:
+        con.close()
+
+
+def _run_pyr(where: str, params: list):
+    """Executa query da pirâmide em conexão própria (para uso em thread)."""
+    con = _get_con()
+    try:
+        return con.execute(
+            f"SELECT faixa_etaria, sexo_desc, count(*) AS total FROM {VIEW_ANALISE} WHERE {where} GROUP BY 1, 2",
+            params,
+        ).fetchdf()
+    finally:
+        con.close()
+
+
+def _run_sample(where: str, params: list):
+    """Executa query da amostra em conexão própria (para uso em thread)."""
+    con = _get_con()
+    try:
+        return con.execute(f"SELECT * FROM {VIEW_ANALISE} WHERE {where} LIMIT 200", params).fetchdf()
+    finally:
+        con.close()
+
+
 def _normalize_todos_multiselect(key: str, all_options: list, sentinel: str):
     """
-    Normaliza a seleção do multiselect com "Todos/Todas" exclusivo.
-    - Se há sentinel e outro item: remove sentinel e atualiza session_state.
-    - Se seleção vazia: define [sentinel] e atualiza session_state.
-    - Retorna (opcoes_para_widget, valor_normalizado).
-    Se a seleção contiver opção concreta, as opções do widget não incluem o sentinela.
+    Retorna (opcoes_para_widget, valor_para_default) para o multiselect.
+    Não escreve em session_state (evita conflito com default= do widget).
     """
     val = st.session_state.get(key, [sentinel])
-    if sentinel in val and len(val) > 1:
-        val = [x for x in val if x != sentinel]
-        st.session_state[key] = val
     if val == []:
         val = [sentinel]
-        st.session_state[key] = val
+    # Para opções: se já tem só itens concretos, mostrar lista sem sentinela
     opts = [o for o in all_options if o != sentinel] if (val and sentinel not in val) else all_options
-    return opts, val
+    # Para default: se tem sentinela + outros, considerar só os outros (só para exibição do default)
+    default_val = [x for x in val if x != sentinel] if (sentinel in val and len(val) > 1) else val
+    return opts, default_val
 
 
 def _effective_sel_for_where(sel: list, concrete_options: list, sentinel: str) -> list:
@@ -86,6 +140,15 @@ def _effective_sel_for_where(sel: list, concrete_options: list, sentinel: str) -
     if set(sel) == set(concrete_options):
         return [sentinel]
     return sel
+
+
+def _selection_for_where(sel: list, concrete_options: list, sentinel: str) -> list:
+    """Remove sentinela quando há outros itens (ex.: ['Todos','X'] vira ['X']), depois aplica _effective_sel_for_where."""
+    if not sel:
+        return sel
+    if sentinel in sel and len(sel) > 1:
+        sel = [x for x in sel if x != sentinel]
+    return _effective_sel_for_where(sel, concrete_options, sentinel)
 
 
 def _build_where_and_params(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel, causa_sel, circ_sel, loc_sel):
@@ -131,79 +194,133 @@ def _build_where_and_params(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_se
     return where, params
 
 
-def _query_distinct(con, column: str, where: str, params: list) -> list:
-    sql = f"SELECT DISTINCT {column} FROM {VIEW_ANALISE} WHERE {where} AND {column} IS NOT NULL ORDER BY 1"
-    return [r[0] for r in con.execute(sql, params).fetchall()]
+def _opts_sexo_silver(con) -> list:
+    """Opções de sexo a partir da silver (legenda_sexo)."""
+    try:
+        path = _silver_parquet("legenda_sexo.parquet").replace("'", "''")
+        return [r[0] for r in con.execute(f"SELECT descricao FROM read_parquet('{path}') ORDER BY 1").fetchall()]
+    except Exception:
+        return []
 
 
-def _opts_cache_key(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel):
-    """Chave hashable para cache de opções em cascata."""
-    return (
-        d1,
-        d2,
-        tuple(sexo_sel or ()),
-        tuple(faixa_sel or ()),
-        tuple(uf_sel or ()),
-        tuple(mun_sel or ()),
-        tuple(cap_sel or ()),
-    )
+def _opts_uf_silver(con) -> list:
+    """Opções de UF a partir da silver (municipios)."""
+    try:
+        path = _silver_parquet("municipios.parquet").replace("'", "''")
+        return [r[0] for r in con.execute(f"SELECT DISTINCT uf FROM read_parquet('{path}') ORDER BY 1").fetchall()]
+    except Exception:
+        return []
 
 
-def _get_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel):
-    """Retorna opções em cascata, usando cache em session_state quando a chave de filtros não mudou."""
-    key = _opts_cache_key(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel)
-    cache = st.session_state.get(SK_OPTS_CACHE, {})
-    if key in cache:
-        return cache[key]
-    result = _query_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel)
-    st.session_state.setdefault(SK_OPTS_CACHE, {})[key] = result
-    return result
+def _opts_municipio_silver(con, uf_sel: list) -> list:
+    """Opções de município a partir da silver; cascata por UF selecionada."""
+    try:
+        path = _silver_parquet("municipios.parquet").replace("'", "''")
+        if not uf_sel or "Todas" in uf_sel:
+            return [r[0] for r in con.execute(f"SELECT municipio FROM read_parquet('{path}') ORDER BY 1").fetchall()]
+        placeholders = ", ".join("?" * len(uf_sel))
+        return [r[0] for r in con.execute(
+            f"SELECT municipio FROM read_parquet('{path}') WHERE uf IN ({placeholders}) ORDER BY 1",
+            list(uf_sel),
+        ).fetchall()]
+    except Exception:
+        return []
 
 
-def _query_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel):
-    """Retorna listas de opções para cada filtro (em cascata), sem carregar tabela inteira."""
-    w, p = _build_where_and_params(d1, d2, sexo_sel, faixa_sel, None, None, None, [], [], [])
-    ufs = _query_distinct(con, "uf_residencia", w, p)
+def _depara_path() -> str:
+    """Path do cid10_depara.parquet (escapado para SQL); vazio se não existir."""
+    p = SILVER_PATH / "cid10_depara.parquet"
+    return _silver_parquet("cid10_depara.parquet").replace("'", "''") if p.exists() else ""
 
-    w2, p2 = _build_where_and_params(d1, d2, sexo_sel, faixa_sel, uf_sel, None, None, [], [], [])
-    muns = _query_distinct(con, "municipio_residencia", w2, p2)
 
-    w3, p3 = _build_where_and_params(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, None, [], [], [])
-    caps_raw = _query_distinct(con, "causa_cid10_capitulo_desc", w3, p3)
+def _opts_capitulos_silver(con) -> list:
+    """Opções de capítulo CID-10. Preferência: depara (por intervalo); fallback: legenda por letra."""
+    d_path = _depara_path()
+    if d_path:
+        try:
+            return [
+                r[0]
+                for r in con.execute(
+                    f"SELECT DISTINCT capitulo_descricao FROM read_parquet('{d_path}') "
+                    f"WHERE TRIM(COALESCE(CAST(capitulo_descricao AS VARCHAR), '')) != '' ORDER BY 1"
+                ).fetchall()
+            ]
+        except Exception:
+            pass
+    try:
+        path = _silver_parquet("legenda_cid10_capitulo.parquet").replace("'", "''")
+        return [
+            r[0] for r in con.execute(
+                f"SELECT descricao FROM (SELECT descricao, MIN(letra) AS ord FROM read_parquet('{path}') GROUP BY descricao) AS t ORDER BY ord"
+            ).fetchall()
+        ]
+    except Exception:
+        return []
 
-    def _cap_sort_key(s):
-        if not s:
-            return ("", s)
-        m = re.search(r"\(([A-Za-z])", str(s))
-        return (m.group(1).upper() if m else "", s)
 
-    caps = sorted(caps_raw, key=_cap_sort_key)
+def _opts_causas_silver(con, cap_sel: list) -> list:
+    """Opções de causa (doença); cascata por capítulo. Usa depara (intervalo) quando existir."""
+    def fmt(cod: str, desc: str) -> str:
+        c = (cod or "").strip()
+        d = (desc or "").strip()
+        return f"{c} - {d}" if d else c or ""
 
-    w4, p4 = _build_where_and_params(d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel, [], [], [])
-    causas_sql = f"""
-        SELECT causa_basica,
-               ANY_VALUE(COALESCE(causa_cid10_desc, causa_cid10_capitulo_desc)) AS causa_desc
-        FROM {VIEW_ANALISE}
-        WHERE {w4} AND causa_basica IS NOT NULL AND TRIM(CAST(causa_basica AS VARCHAR)) != ''
-        GROUP BY causa_basica
-    """
-    causas_rows = con.execute(causas_sql, p4).fetchall()
-    causas_labels = sorted(
-        [f"{str(cod).strip()} - {str(desc or '').strip()}" for cod, desc in causas_rows],
-        key=lambda x: x.split(" - ", 1)[0] if " - " in x else x,
-    )[:400]
+    d_path = _depara_path()
+    if d_path:
+        try:
+            if not cap_sel or "Todos" in cap_sel:
+                rows = con.execute(
+                    f"SELECT codigo, descricao FROM read_parquet('{d_path}') "
+                    f"WHERE TRIM(COALESCE(CAST(codigo AS VARCHAR), '')) != '' ORDER BY codigo"
+                ).fetchall()
+            else:
+                placeholders = ", ".join("?" * len(cap_sel))
+                rows = con.execute(
+                    f"SELECT codigo, descricao FROM read_parquet('{d_path}') "
+                    f"WHERE capitulo_descricao IN ({placeholders}) "
+                    f"AND TRIM(COALESCE(CAST(codigo AS VARCHAR), '')) != '' ORDER BY codigo",
+                    list(cap_sel),
+                ).fetchall()
+            if rows:
+                return [fmt(str(cod), str(desc)) for cod, desc in rows]
+        except Exception:
+            pass
 
-    circs = _query_distinct(con, "circunstancia_desc", w4, p4)
-    locs = _query_distinct(con, "local_ocorrencia_desc", w4, p4)
-
-    return {
-        "ufs": ufs,
-        "muns": muns,
-        "capitulos": caps,
-        "causas_labels": causas_labels,
-        "circunstancias": circs,
-        "locais": locs,
-    }
+    try:
+        path_cap = _silver_parquet("legenda_cid10_capitulo.parquet").replace("'", "''")
+        path_causa = _silver_parquet("legenda_cid10_causa.parquet").replace("'", "''")
+        if not cap_sel or "Todos" in cap_sel:
+            rows = con.execute(
+                f"SELECT codigo, descricao FROM read_parquet('{path_causa}') "
+                f"WHERE TRIM(COALESCE(CAST(codigo AS VARCHAR), '')) != '' ORDER BY codigo"
+            ).fetchall()
+        else:
+            placeholders = ", ".join("?" * len(cap_sel))
+            letras_sql = f"SELECT DISTINCT letra FROM read_parquet('{path_cap}') WHERE descricao IN ({placeholders})"
+            letras = [r[0] for r in con.execute(letras_sql, list(cap_sel)).fetchall()]
+            if not letras:
+                return []
+            ph = ", ".join("?" * len(letras))
+            rows = con.execute(
+                f"SELECT codigo, descricao FROM read_parquet('{path_causa}') "
+                f"WHERE SUBSTR(TRIM(COALESCE(CAST(codigo AS VARCHAR), '')), 1, 1) IN ({ph}) "
+                f"AND TRIM(COALESCE(CAST(codigo AS VARCHAR), '')) != '' ORDER BY codigo"
+            ).fetchall()
+        if rows:
+            return [fmt(str(cod), str(desc)) for cod, desc in rows]
+    except Exception:
+        pass
+    # Fallback: causas que existem nos dados (gold)
+    try:
+        rows = con.execute(
+            f"SELECT DISTINCT causa_basica, causa_cid10_desc FROM {VIEW_ANALISE} "
+            f"WHERE causa_basica IS NOT NULL AND TRIM(CAST(causa_basica AS VARCHAR)) != '' ORDER BY causa_basica"
+        ).fetchall()
+        if rows:
+            return [fmt(str(r[0]), str(r[1]) if r[1] is not None else "") for r in rows]
+    except Exception:
+        pass
+    return []
 
 
 st.set_page_config(page_title="Análise exploratória - SIM", layout="wide")
@@ -224,22 +341,81 @@ if not GOLD_DB.exists():
     st.warning("A camada **gold** não foi encontrada. Faça o download e processe em **Download de Dados**.")
     st.stop()
 
-con = _get_con()
-if not _view_exists(con):
+# Abrir conexão só quando for preciso (caches, cascata ou aplicar)
+con = None
+
+
+def _ensure_static_caches(conn):
+    """Preenche cache de min/max, sexo, UF e capítulos se ainda não existir."""
+    if SK_CACHE_MIN_DATE not in st.session_state:
+        min_date = conn.execute("SELECT min(dt_obito) FROM v_obitos_completo").fetchone()[0]
+        max_date = conn.execute("SELECT max(dt_obito) FROM v_obitos_completo").fetchone()[0]
+        st.session_state[SK_CACHE_MIN_DATE] = min_date
+        st.session_state[SK_CACHE_MAX_DATE] = max_date
+    if SK_CACHE_OPCOES_SEXO not in st.session_state:
+        st.session_state[SK_CACHE_OPCOES_SEXO] = ["Todos"] + _opts_sexo_silver(conn)
+    if SK_CACHE_UF_LIST not in st.session_state:
+        st.session_state[SK_CACHE_UF_LIST] = _opts_uf_silver(conn)
+    if SK_CACHE_CAP_LIST not in st.session_state:
+        st.session_state[SK_CACHE_CAP_LIST] = _opts_capitulos_silver(conn)
+
+
+# Primeira vez: checar view e preencher caches estáticos
+need_static = SK_CACHE_UF_LIST not in st.session_state
+if need_static:
+    con = _get_con()
+    if not _view_exists(con):
+        con.close()
+        st.warning(
+            "A view **v_obitos_analise** não existe. Reconstrua a camada gold (faça um novo download ou "
+            "reprocesse os dados) para ativar a análise otimizada."
+        )
+        st.stop()
+    _ensure_static_caches(con)
+
+default_d1 = _to_date(st.session_state.get(SK_CACHE_MIN_DATE)) if SK_CACHE_MIN_DATE in st.session_state else None
+default_d2 = _to_date(st.session_state.get(SK_CACHE_MAX_DATE)) if SK_CACHE_MAX_DATE in st.session_state else None
+opcoes_sexo = st.session_state.get(SK_CACHE_OPCOES_SEXO, ["Todos"])
+uf_list = st.session_state.get(SK_CACHE_UF_LIST, [])
+cap_list = st.session_state.get(SK_CACHE_CAP_LIST, [])
+
+# Cascata: chaves para cache de município e causas
+uf_sel_raw = st.session_state.get("analise_uf", uf_list if uf_list else [])
+uf_para_cascade = [u for u in uf_sel_raw if u != "Todas"] if uf_sel_raw else []
+mun_uf_key = tuple(sorted(uf_para_cascade))
+
+cap_sel_raw = st.session_state.get("analise_cap", cap_list if cap_list else [])
+cap_para_cascade = [c for c in cap_sel_raw if c != "Todos"] if cap_sel_raw else []
+causas_cap_key = tuple(sorted(cap_para_cascade))
+
+need_mun = st.session_state.get(SK_CACHE_MUN_UF_KEY) != mun_uf_key
+need_causas = st.session_state.get(SK_CACHE_CAUSAS_CAP_KEY) != causas_cap_key
+if need_mun or need_causas:
+    if con is None:
+        con = _get_con()
+    if need_mun:
+        mun_list = _opts_municipio_silver(con, list(uf_para_cascade))
+        st.session_state[SK_CACHE_MUN_LIST] = mun_list
+        st.session_state[SK_CACHE_MUN_UF_KEY] = mun_uf_key
+    else:
+        mun_list = st.session_state.get(SK_CACHE_MUN_LIST, [])
+    if need_causas:
+        causas_labels = _opts_causas_silver(con, list(cap_para_cascade))
+        st.session_state[SK_CACHE_CAUSAS_LABELS] = causas_labels
+        st.session_state[SK_CACHE_CAUSAS_CAP_KEY] = causas_cap_key
+        st.session_state["analise_causa"] = []
+    else:
+        causas_labels = st.session_state.get(SK_CACHE_CAUSAS_LABELS, [])
+else:
+    mun_list = st.session_state.get(SK_CACHE_MUN_LIST, [])
+    causas_labels = st.session_state.get(SK_CACHE_CAUSAS_LABELS, [])
+
+if con is not None:
     con.close()
-    st.warning(
-        "A view **v_obitos_analise** não existe. Reconstrua a camada gold (faça um novo download ou "
-        "reprocesse os dados) para ativar a análise otimizada."
-    )
-    st.stop()
+    con = None
 
-# Opções iniciais (só data)
-min_date = con.execute("SELECT min(dt_obito) FROM v_obitos_completo").fetchone()[0]
-max_date = con.execute("SELECT max(dt_obito) FROM v_obitos_completo").fetchone()[0]
-default_d1 = _to_date(min_date)
-default_d2 = _to_date(max_date)
-
-opcoes_sexo = ["Todos"] + _query_distinct(con, "sexo_desc", "1=1", [])
+default_uf = uf_sel_raw if uf_sel_raw else (uf_list or [])
+default_cap = cap_sel_raw if cap_sel_raw else (cap_list or [])
 
 # ---- Filtros na aba principal ----
 st.subheader("🔽 Filtros")
@@ -267,32 +443,29 @@ with c1:
             d1, d2 = d2, d1
 with c2:
     opts_sexo, default_sexo = _normalize_todos_multiselect("analise_sexo", opcoes_sexo, "Todos")
-    sexo_sel = st.multiselect("Sexo", opts_sexo, key="analise_sexo")
+    sexo_sel = st.multiselect("Sexo", opts_sexo, default=default_sexo, key="analise_sexo")
 with c3:
     all_faixas = ["Todas"] + FAIXAS_ETARIAS
     opts_faixa, default_faixa = _normalize_todos_multiselect("analise_faixa", all_faixas, "Todas")
-    faixa_sel = st.multiselect("Faixa etária", opts_faixa, key="analise_faixa")
-
-opts = _get_options_cascading(con, d1, d2, sexo_sel, faixa_sel, None, None, None)
+    faixa_sel = st.multiselect("Faixa etária", opts_faixa, default=default_faixa, key="analise_faixa")
 
 r2a, r2b = st.columns(2)
 with r2a:
-    all_ufs = ["Todas"] + opts["ufs"]
-    opts_uf, default_uf = _normalize_todos_multiselect("analise_uf", all_ufs, "Todas")
-    uf_sel = st.multiselect("UF (residência)", opts_uf, key="analise_uf")
+    uf_sel = st.multiselect("UF (residência)", uf_list, default=default_uf, key="analise_uf")
 with r2b:
-    opts2 = _get_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, None, None)
-    all_muns = ["Todos"] + opts2["muns"]
+    all_muns = ["Todos"] + mun_list
     opts_mun, default_mun = _normalize_todos_multiselect("analise_mun", all_muns, "Todos")
-    mun_sel = st.multiselect("Município (residência)", opts_mun, key="analise_mun")
+    mun_sel = st.multiselect("Município (residência)", opts_mun, default=default_mun, key="analise_mun")
 
-opts3 = _get_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, None)
-all_caps = ["Todos"] + opts3["capitulos"]
-opts_cap, default_cap = _normalize_todos_multiselect("analise_cap", all_caps, "Todos")
-cap_sel = st.multiselect("Capítulo CID-10 (causa)", opts_cap, key="analise_cap")
+cap_sel = st.multiselect("Capítulo CID-10 (causa)", cap_list, default=default_cap, key="analise_cap")
 
-opts4 = _get_options_cascading(con, d1, d2, sexo_sel, faixa_sel, uf_sel, mun_sel, cap_sel)
-causa_sel = st.multiselect("Causa do óbito (código - descrição)", opts4["causas_labels"], default=[], key="analise_causa")
+causa_sel = st.multiselect(
+    "Causa do óbito (código - descrição)",
+    causas_labels,
+    default=st.session_state.get("analise_causa") or [],
+    key="analise_causa",
+    help="Selecione um ou mais capítulos CID-10 acima para filtrar a lista de causas. Sem capítulo selecionado, todas as causas são carregadas.",
+)
 
 st.markdown("")
 aplicar = st.button("Filtrar", type="primary", use_container_width=True)
@@ -300,29 +473,25 @@ aplicar = st.button("Filtrar", type="primary", use_container_width=True)
 st.markdown("---")
 
 if aplicar:
-    sexo_eff = _effective_sel_for_where(sexo_sel, [o for o in opcoes_sexo if o != "Todos"], "Todos")
-    faixa_eff = _effective_sel_for_where(faixa_sel, FAIXAS_ETARIAS, "Todas")
-    uf_eff = _effective_sel_for_where(uf_sel, opts["ufs"], "Todas")
-    mun_eff = _effective_sel_for_where(mun_sel, opts2["muns"], "Todos")
-    cap_eff = _effective_sel_for_where(cap_sel, opts3["capitulos"], "Todos")
+    sexo_eff = _selection_for_where(sexo_sel, [o for o in opcoes_sexo if o != "Todos"], "Todos")
+    faixa_eff = _selection_for_where(faixa_sel, FAIXAS_ETARIAS, "Todas")
+    uf_eff = _effective_sel_for_where(uf_sel, uf_list, "Todas")
+    mun_eff = _selection_for_where(mun_sel, mun_list, "Todos")
+    cap_eff = _effective_sel_for_where(cap_sel, cap_list, "Todos")
     where, params = _build_where_and_params(
         d1, d2, sexo_eff, faixa_eff, uf_eff, mun_eff, cap_eff, causa_sel, ["Todas"], ["Todos"]
     )
-    n = con.execute(f"SELECT count(*) FROM {VIEW_ANALISE} WHERE {where}", params).fetchone()[0]
-    ts_fmt = "%Y" if st.session_state.get("analise_ts_granularidade", "Anos") == "Anos" else "%Y-%m"
-    ts_df = con.execute(
-        f"SELECT strftime(dt_obito, '{ts_fmt}') AS periodo, count(*) AS obitos FROM {VIEW_ANALISE} WHERE {where} GROUP BY 1 ORDER BY 1",
-        params,
-    ).fetchdf()
-    st.session_state[SK_TS_GRANULARITY] = st.session_state.get("analise_ts_granularidade", "Anos")
-    pyr_df = con.execute(
-        f"SELECT faixa_etaria, sexo_desc, count(*) AS total FROM {VIEW_ANALISE} WHERE {where} GROUP BY 1, 2",
-        params,
-    ).fetchdf()
-    sample_df = con.execute(
-        f"SELECT * FROM {VIEW_ANALISE} WHERE {where} LIMIT 200",
-        params,
-    ).fetchdf()
+    ts_fmt = "%Y" if st.session_state.get("analise_ts_granularity", "Anos") == "Anos" else "%Y-%m"
+    st.session_state[SK_TS_GRANULARITY] = st.session_state.get("analise_ts_granularity", "Anos")
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        f_count = executor.submit(_run_count, where, params)
+        f_ts = executor.submit(_run_ts, where, params, ts_fmt)
+        f_pyr = executor.submit(_run_pyr, where, params)
+        f_sample = executor.submit(_run_sample, where, params)
+        n = f_count.result()
+        ts_df = f_ts.result()
+        pyr_df = f_pyr.result()
+        sample_df = f_sample.result()
     st.session_state[SK_APPLIED] = True
     st.session_state[SK_COUNT] = n
     st.session_state[SK_TS] = ts_df
@@ -330,10 +499,7 @@ if aplicar:
     st.session_state[SK_SAMPLE] = sample_df
     st.session_state[SK_WHERE] = where
     st.session_state[SK_PARAMS] = params
-    con.close()
     st.rerun()
-
-con.close()
 
 if not st.session_state.get(SK_APPLIED, False):
     st.info("Ajuste os filtros e clique em **Filtrar** para ver os gráficos.")
@@ -343,7 +509,7 @@ n = st.session_state.get(SK_COUNT, 0)
 st.caption(f"**{n:,}** óbitos após filtros.")
 
 if n == 0:
-    st.warning("Nenhum registro com os critérios selecionados. Altere os filtros e clique em **Filtrar** novamente.")
+    st.info("Não houveram dados registrados com esses filtros.")
     st.stop()
 
 ts_df = st.session_state.get(SK_TS)
