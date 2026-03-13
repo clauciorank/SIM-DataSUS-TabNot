@@ -62,8 +62,6 @@ def reset_schema_cache() -> None:
         pass
 
 
-# Uso no graph: get_schema_from_view() para alimentar o agente com o que a view expõe.
-SCHEMA_VIEWS = ""  # Obsoleto: use get_schema_from_view() no prompt.
 
 PLAN_SYSTEM = (
     "Você é um assistente que gera apenas uma instrução SQL SELECT para responder à pergunta do usuário "
@@ -74,6 +72,11 @@ PLAN_SYSTEM = (
     "Se a pergunta for sobre MÊS do ano (ex.: qual mês, por mês, mensal, evolução mensal), use month(dt_obito) "
     "ou strftime(dt_obito, '%m'); nunca use %w (isso é dia da semana). "
     "Criatividade zero: não invente números nem valores. Resposta apenas em JSON com chave 'sql'.\n\n"
+    "REGRAS DE ESCOPO (MUITO IMPORTANTE):\n"
+    "- Se a pergunta NÃO menciona ano ou período: a query NÃO deve filtrar por ano (abrange todos os anos da base).\n"
+    "- Se a pergunta NÃO menciona lugar (cidade/estado): a query NÃO deve filtrar por município nem UF (abrange todo o Brasil).\n"
+    "- Se a pergunta NÃO menciona causa/doença específica: a query NÃO deve filtrar por causa.\n"
+    "- Siga EXATAMENTE o que o usuário pediu. Não adicione filtros que ele não solicitou.\n\n"
     "PROIBIÇÕES ABSOLUTAS:\n"
     "- NUNCA filtre por municipio_residencia nem uf_residencia se o contexto de lugar estiver vazio.\n"
     "- NUNCA filtre por causa se o contexto de causa estiver vazio.\n"
@@ -115,59 +118,18 @@ PLAN_SYSTEM = (
     "WHERE (causa_basica LIKE 'C40%' OR causa_basica LIKE 'C41%' OR causa_basica LIKE 'C795%')\"}\n"
 )
 
-EVALUATE_SYSTEM = (
-    "Você avalia se o resultado de uma query SQL responde adequadamente à pergunta do usuário. "
-    "Responda em uma linha: SIM ou NÃO. Se NÃO, acrescente um breve motivo em seguida (ex: NÃO. Motivo: a query não filtra por ano)."
+FORMAT_RESPONSE_SYSTEM = (
+    "Você recebe a pergunta do usuário e o resultado de uma consulta SQL sobre dados de óbitos (SIM/DataSUS). "
+    "Escreva uma resposta objetiva e concisa usando APENAS os dados presentes no resultado.\n\n"
+    "REGRAS:\n"
+    "- Não invente números nem dados que não estejam no resultado.\n"
+    "- Se o resultado tiver muitas linhas, destaque os principais (top 5-10).\n"
+    "- Para contagens, mencione o valor exato.\n"
+    "- Para rankings, liste os itens em ordem.\n"
+    "- Para séries temporais, descreva a tendência.\n"
+    "- Seja educado e breve. Use texto corrido.\n"
+    "- Se a pergunta pediu algo que o resultado não responde diretamente, "
+    "informe o que os dados mostram sem inventar."
 )
 
-RESPOND_SYSTEM = (
-    "Você formata a resposta final ao usuário com base no resultado da query. "
-    "Seja breve e objetivo. Use apenas os números e dados presentes no resultado. Não invente nada."
-)
 
-# Uma única chamada: avalia e, se OK, formata a resposta; se não OK, pede replan (economiza quota)
-EVALUATE_AND_RESPOND_SYSTEM = (
-    "Você recebe: a pergunta do usuário, a query SQL executada e o resultado (tabela). "
-    "Siga este checklist antes de responder:\n\n"
-    "CHECKLIST DE VALIDAÇÃO:\n"
-    "1. O resultado está vazio '(vazio)'? Se sim, responda: REPLAN: resultado vazio — "
-    "verifique filtros de ano, município ou causa.\n"
-    "2. Se a pergunta pede um número total (quantos, total, contagem), o resultado tem essa coluna com valor > 0?\n"
-    "3. Se a pergunta pede ranking ou top N, o resultado tem N linhas (ou menos se a base for menor)?\n"
-    "4. Se a pergunta menciona lugar (cidade/estado), a query filtrou por lugar? "
-    "Se não, responda: REPLAN: query não filtrou por lugar.\n"
-    "5. Se a pergunta menciona ano ou período, a query filtrou por ano? "
-    "Se não, responda: REPLAN: query não filtrou por ano.\n"
-    "6. Se a pergunta menciona causa/doença, a query filtrou por causa? "
-    "Se não, responda: REPLAN: query não filtrou por causa.\n"
-    "7. Se a pergunta pede uma causa/doença ESPECÍFICA (ex.: neoplasia óssea, dengue, tuberculose), os códigos ou o capítulo na query devem corresponder a essa causa. Se a query usa códigos que claramente referem-se a OUTRAS doenças (ex.: tuberculose, HIV, acidentes, doação de sangue quando a pergunta foi sobre câncer/neoplasia), responda: REPLAN: o filtro de causa não corresponde à pergunta — códigos inadequados.\n\n"
-    "REGRA FINAL:\n"
-    "Se todos os itens aplicáveis passaram: escreva uma resposta objetiva para o usuário "
-    "usando APENAS os dados do resultado. Não invente números. Seja conciso.\n"
-    "Se qualquer item falhou: escreva na primeira linha EXATAMENTE: REPLAN: <motivo específico>. "
-    "Nada mais além dessa linha quando for REPLAN.\n"
-    "Se o resultado está correto mas é vazio por ausência genuína de dados (ex.: nenhum óbito registrado), "
-    "informe o usuário educadamente em vez de pedir REPLAN."
-)
-
-# Validação de SQL antes de executar: uma chamada LLM que aprova ou pede replan
-VALIDATE_SQL_SYSTEM = (
-    "Você revisa se uma query SQL está alinhada à pergunta do usuário e aos contextos fornecidos (município, causa). "
-    "Responda em UMA LINHA apenas: OK ou REPLAN: <motivo breve>. "
-    "Confira: (1) A SQL responde à pergunta? "
-    "(2) Se a pergunta menciona lugar (cidade/estado), a SQL usa os municípios ou UF do contexto? "
-    "(3) Se menciona causa/doença, a SQL usa os códigos ou capítulo do contexto? "
-    "(4) Se menciona ano ou período, há filtro por ano ou dt_obito? "
-    "(5) Se a pergunta é sobre MÊS do ano, a SQL usa month(dt_obito) ou strftime(..., '%m') e NÃO usa '%w' (dia da semana)? "
-    "Se qualquer item falhar, responda REPLAN: e o motivo. Caso contrário, responda apenas OK."
-)
-
-# Usado no nó de extração de lugar: a IA devolve só a menção a cidade/município/estado para depois resolver com a ferramenta
-EXTRACT_PLACE_SYSTEM = (
-    "Você extrai da pergunta do usuário APENAS a parte que se refere a um lugar (cidade, município ou estado). "
-    "Exemplos: 'quantos óbitos em Curitiba' -> a parte do lugar é 'Curitiba'; "
-    "'em São Bento do Sul Santa Catarina' -> 'São Bento do Sul Santa Catarina'; "
-    "'no Rio de Janeiro' -> 'Rio de Janeiro'. "
-    "Se não houver menção a lugar, retorne vazio. "
-    "Resposta APENAS em JSON com uma única chave 'place' (string). Exemplo: {\"place\": \"São Bento do Sul Santa Catarina\"} ou {\"place\": \"\"}."
-)

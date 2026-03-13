@@ -9,9 +9,9 @@ from typing import List, Tuple
 # (termo ou palavra-chave na pergunta, prefixo CID-10 ou código, descrição para ILIKE)
 # Ordenar por especificidade (código mais específico primeiro quando vários)
 DOENCAS_CONHECIDAS: List[Tuple[str, str, str]] = [
-    ("covid", "U07.1", "COVID-19"),
-    ("covid-19", "U07.1", "COVID-19"),
-    ("sars-cov", "U07.1", "COVID-19"),
+    ("covid", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
+    ("covid-19", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
+    ("sars-cov", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
     ("dengue", "A90", "Dengue"),
     ("dengue hemorrágica", "A91", "Dengue hemorrágico"),
     ("infarto", "I21", "Infarto agudo do miocárdio"),

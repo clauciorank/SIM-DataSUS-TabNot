@@ -1,5 +1,6 @@
 """
-Grafo LangGraph: planejar -> executar -> avaliar+responder (1 chamada) -> (fim | replanejar).
+Grafo LangGraph: plan -> execute -> check_result (determinístico) -> format_response (LLM) -> respond.
+Validação determinística: confia no DuckDB (EXPLAIN + execução). LLM só gera SQL e formata resposta.
 Suporta Gemini (API Google), Groq e Ollama (local); modelo e provedor vêm da configuração.
 """
 import json
@@ -15,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 GOLD_DB = PROJECT_ROOT / "data" / "SIM" / "gold" / "obitos.duckdb"
 
 MAX_ROWS = 500
-MAX_TENTATIVAS = 3
+MAX_TENTATIVAS = 2
 
 class AgentState(TypedDict, total=False):
     pergunta: str
@@ -160,22 +161,6 @@ def _safe_sql(sql: str) -> bool:
         if forbidden in normalized:
             return False
     return normalized.startswith("SELECT") or normalized.startswith("WITH")
-
-
-def _dry_run_sql(sql: str) -> tuple:
-    """Valida a SQL no DuckDB sem executar (EXPLAIN). Retorna (ok: bool, mensagem_erro: str). Usado apenas quando execute não faz EXPLAIN."""
-    try:
-        import duckdb
-        con = duckdb.connect(str(GOLD_DB), read_only=True)
-        try:
-            con.execute(f"EXPLAIN {sql}")
-            return (True, "")
-        except Exception as e:
-            return (False, str(e))
-        finally:
-            con.close()
-    except Exception as e:
-        return (False, f"Erro ao conectar: {e}")
 
 
 def _extract_sql_from_plan_output(out: str) -> str:
@@ -358,54 +343,55 @@ def _execute_node(state: AgentState) -> AgentState:
         return {"resultado_execucao": result_str, "sql_validation_ok": False}
 
 
-def _evaluate_and_respond_node(state: AgentState, llm_config: Dict[str, Any]) -> AgentState:
+def _check_result_node(state: AgentState) -> AgentState:
     """
-    Uma única chamada LLM: avalia o resultado e, se OK, formata a resposta;
-    se não OK, devolve REPLAN: motivo (economiza 1 chamada por pergunta).
+    Verificação determinística do resultado (sem LLM).
+    Se o DuckDB executou sem erro e retornou dados, confia no resultado.
+    Só pede replan se o resultado estiver vazio.
     """
-    from src.agent.schema import EVALUATE_AND_RESPOND_SYSTEM
+    resultado = (state.get("resultado_execucao") or "").strip()
+    if not resultado or resultado == "(vazio)":
+        historico = list(state.get("historico_falhas") or [])
+        historico.append({
+            "sql": state.get("sql_planejada", ""),
+            "erro": "Resultado vazio — tente filtros mais amplos ou remova filtros desnecessários",
+        })
+        logger.warning("check_result: resultado vazio, pedindo replan")
+        return {
+            "avaliacao_ok": False,
+            "feedback_avaliacao": "Resultado vazio — tente filtros mais amplos ou remova filtros desnecessários",
+            "historico_falhas": historico,
+            "tentativas": state.get("tentativas", 0) + 1,
+        }
+    logger.info("check_result: OK, resultado tem dados")
+    return {
+        "avaliacao_ok": True,
+        "tentativas": state.get("tentativas", 0) + 1,
+    }
+
+
+def _format_response_node(state: AgentState, llm_config: Dict[str, Any]) -> AgentState:
+    """
+    Formata o resultado em linguagem natural para o usuário (1 chamada LLM).
+    Não faz validação nem REPLAN — apenas formata os dados.
+    """
+    from src.agent.schema import FORMAT_RESPONSE_SYSTEM
     pergunta = state.get("pergunta", "")
     sql = state.get("sql_planejada", "")
     resultado = (state.get("resultado_execucao") or "")[:2000]
     user_msg = (
-        f"Pergunta: {pergunta}\n\nQuery executada:\n{sql}\n\nResultado (amostra):\n{resultado}\n\n"
-        "O resultado responde à pergunta? Se sim, escreva a resposta para o usuário. Se não, escreva REPLAN: e o motivo."
+        f"Pergunta do usuário: {pergunta}\n\n"
+        f"Query SQL executada:\n{sql}\n\n"
+        f"Resultado:\n{resultado}\n\n"
+        "Escreva a resposta para o usuário com base nos dados acima."
     )
-    sql_upper = (sql or "").upper()
-    if "causa_basica" in sql_upper or "causa_cid10_desc" in sql_upper or "causa_cid10_capitulo_desc" in sql_upper:
-        user_msg += (
-            "\n\nSe a query filtra por causa/doença, confira se os códigos ou capítulos usados estão de acordo com a pergunta; "
-            "se não estiverem, responda REPLAN: filtro de causa incorreto ou não corresponde à pergunta."
-        )
-    pergunta_low = (pergunta or "").lower()
-    if ("mês" in pergunta_low or "mes" in pergunta_low) and "%w" in (sql or ""):
-        user_msg += (
-            "\n\nAtenção: a pergunta pede MÊS do ano; na SQL, strftime com '%w' é dia da semana (0-6), não mês. "
-            "Se for o caso, responda REPLAN: use month(dt_obito) ou strftime(dt_obito, '%m') para mês."
-        )
-    logger.info("evaluate_and_respond: chamando LLM")
-    out = _llm_call(llm_config, EVALUATE_AND_RESPOND_SYSTEM, user_msg, temperature=0.2)
-    out = (out or "").strip()
-    replan_prefix = "REPLAN:"
-    if out.upper().startswith(replan_prefix.upper()):
-        feedback = out[len(replan_prefix) :].strip() or "Replanejar."
-        logger.warning("evaluate_and_respond REPLAN: %s", feedback[:150])
-        historico = list(state.get("historico_falhas") or [])
-        historico.append({"sql": state.get("sql_planejada", ""), "erro": feedback})
-        return {
-            "avaliacao_ok": False,
-            "feedback_avaliacao": feedback,
-            "resposta_final": "",
-            "historico_falhas": historico,
-            "tentativas": state.get("tentativas", 0) + 1,
-        }
-    logger.info("evaluate_and_respond OK resposta len=%d", len(out or ""))
-    return {
-        "avaliacao_ok": True,
-        "feedback_avaliacao": "",
-        "resposta_final": out or "Não foi possível formatar a resposta.",
-        "tentativas": state.get("tentativas", 0) + 1,
-    }
+    logger.info("format_response: chamando LLM")
+    out = _llm_call(llm_config, FORMAT_RESPONSE_SYSTEM, user_msg, temperature=0.2)
+    resposta = (out or "").strip()
+    if not resposta:
+        resposta = "Não foi possível formatar a resposta."
+    logger.info("format_response OK resposta len=%d", len(resposta))
+    return {"resposta_final": resposta}
 
 
 UF_SIGLAS = frozenset(
@@ -526,10 +512,10 @@ def _resolve_cause_node(state: AgentState) -> AgentState:
     return {"causas_contexto": causas_contexto or ""}
 
 
-def _route_after_execute(state: AgentState) -> Literal["evaluate_and_respond", "plan", "give_up"]:
-    """Após execute: se sql_validation_ok -> evaluate_and_respond; senão, replan ou give_up."""
+def _route_after_execute(state: AgentState) -> Literal["check_result", "plan", "give_up"]:
+    """Após execute: se sql_validation_ok -> check_result; senão, replan ou give_up."""
     if state.get("sql_validation_ok") is True:
-        return "evaluate_and_respond"
+        return "check_result"
     if state.get("llm_error"):
         return "give_up"
     if state.get("plan_attempts", 0) >= MAX_TENTATIVAS:
@@ -537,11 +523,12 @@ def _route_after_execute(state: AgentState) -> Literal["evaluate_and_respond", "
     return "plan"
 
 
-def _route_after_evaluate(state: AgentState) -> Literal["respond", "plan"]:
-    ok = state.get("avaliacao_ok", False)
-    tentativas = state.get("tentativas", 0)
-    if ok or tentativas >= MAX_TENTATIVAS:
-        return "respond"
+def _route_after_check(state: AgentState) -> Literal["format_response", "plan", "give_up"]:
+    """Após check_result: se dados OK -> format_response; se vazio -> replan ou give_up."""
+    if state.get("avaliacao_ok"):
+        return "format_response"
+    if state.get("tentativas", 0) >= MAX_TENTATIVAS:
+        return "give_up"
     return "plan"
 
 
@@ -574,9 +561,9 @@ def _respond_node(state: AgentState) -> AgentState:
 
 def _run_agent_fallback(pergunta: str, llm_config: Dict[str, Any]) -> dict:
     """
-    Fluxo extrair_lugar -> planejar -> validar_sql -> executar -> avaliar em Python puro (sem LangGraph).
+    Fluxo em Python puro (sem LangGraph):
+    extract_place -> resolve_cause -> plan -> execute -> check_result -> format_response.
     Guardrail já foi checado em run_agent antes de chegar aqui.
-    Inclui validação de SQL e mensagens de falha (esgotamento, sem dados).
     """
     logger.info("run_agent_fallback start")
     from src.agent.messages import MSG_NAO_CONSEGUIU_CONSULTA
@@ -616,13 +603,12 @@ def _run_agent_fallback(pergunta: str, llm_config: Dict[str, Any]) -> dict:
                 state["resposta_final"] = MSG_NAO_CONSEGUIU_CONSULTA
                 state["tentativas"] = MAX_TENTATIVAS
                 break
-            state.setdefault("historico_falhas", []).append({
-                "sql": state.get("sql_planejada", ""),
-                "erro": state.get("feedback_avaliacao", "Erro ao validar/executar SQL"),
-            })
             continue
-        state = {**state, **_evaluate_and_respond_node(state, state.get("llm_config") or {})}
-        if state.get("avaliacao_ok") or state.get("tentativas", 0) >= MAX_TENTATIVAS:
+        state = {**state, **_check_result_node(state)}
+        if state.get("avaliacao_ok"):
+            state = {**state, **_format_response_node(state, state.get("llm_config") or {})}
+            break
+        if state.get("tentativas", 0) >= MAX_TENTATIVAS:
             break
     resposta_final = state.get("resposta_final", "")
     if not resposta_final and state.get("tentativas", 0) >= MAX_TENTATIVAS:
@@ -693,8 +679,11 @@ def run_agent(pergunta: str, llm_config: Dict[str, Any]) -> dict:
     def execute(state: AgentState) -> AgentState:
         return _execute_node(state)
 
-    def evaluate_and_respond(state: AgentState) -> AgentState:
-        return _evaluate_and_respond_node(state, state.get("llm_config") or {})
+    def check_result(state: AgentState) -> AgentState:
+        return _check_result_node(state)
+
+    def format_response(state: AgentState) -> AgentState:
+        return _format_response_node(state, state.get("llm_config") or {})
 
     def give_up(state: AgentState) -> AgentState:
         return _give_up_node(state)
@@ -706,7 +695,8 @@ def run_agent(pergunta: str, llm_config: Dict[str, Any]) -> dict:
     builder.add_node("resolve_cause", resolve_cause)
     builder.add_node("plan", plan)
     builder.add_node("execute", execute)
-    builder.add_node("evaluate_and_respond", evaluate_and_respond)
+    builder.add_node("check_result", check_result)
+    builder.add_node("format_response", format_response)
     builder.add_node("give_up", give_up)
     builder.add_node("respond", respond)
 
@@ -717,14 +707,15 @@ def run_agent(pergunta: str, llm_config: Dict[str, Any]) -> dict:
     builder.add_conditional_edges(
         "execute",
         _route_after_execute,
-        {"evaluate_and_respond": "evaluate_and_respond", "plan": "plan", "give_up": "give_up"},
+        {"check_result": "check_result", "plan": "plan", "give_up": "give_up"},
     )
-    builder.add_edge("give_up", "respond")
     builder.add_conditional_edges(
-        "evaluate_and_respond",
-        _route_after_evaluate,
-        {"respond": "respond", "plan": "plan"},
+        "check_result",
+        _route_after_check,
+        {"format_response": "format_response", "plan": "plan", "give_up": "give_up"},
     )
+    builder.add_edge("format_response", "respond")
+    builder.add_edge("give_up", "respond")
     builder.add_edge("respond", END)
 
     graph = builder.compile()
