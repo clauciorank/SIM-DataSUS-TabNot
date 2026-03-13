@@ -6,9 +6,15 @@ from src.config.persistence import (
     load_llm_config,
     save_llm_config,
     DEFAULT_LLM_MODEL_GEMINI,
+    DEFAULT_LLM_MODEL_GROQ,
     DEFAULT_LLM_OLLAMA_BASE_URL,
 )
-from src.config.llm_models import fetch_gemini_models, fetch_ollama_models, GEMINI_FALLBACK_MODELS
+from src.config.llm_models import (
+    fetch_gemini_models,
+    fetch_ollama_models,
+    GEMINI_FALLBACK_MODELS,
+    GROQ_FALLBACK_MODELS,
+)
 
 st.title("⚙️ Configurações do Sistema")
 st.markdown("---")
@@ -78,7 +84,7 @@ st.markdown("---")
 
 # Seção Modelo de linguagem (agente de dados)
 st.subheader("Modelo de linguagem (agente de dados)")
-st.caption("Configure para usar a aba **Consultar com IA**. Gemini 3.1 Flash Lite tem a melhor quota no free tier; Ollama roda local sem limite.")
+st.caption("Configure para usar a aba **Consultar com IA**. Gemini (nuvem), Groq (Llama na nuvem) ou Ollama (local).")
 
 llm_config = load_llm_config()
 provider = (llm_config.get("provider") or "gemini").strip().lower()
@@ -88,9 +94,9 @@ ollama_base_current = (llm_config.get("ollama_base_url") or DEFAULT_LLM_OLLAMA_B
 
 provider_choice = st.radio(
     "Provedor",
-    options=["gemini", "ollama"],
-    format_func=lambda x: "Gemini (Google – nuvem)" if x == "gemini" else "Ollama (local)",
-    index=0 if provider == "gemini" else 1,
+    options=["gemini", "groq", "ollama"],
+    format_func=lambda x: {"gemini": "Gemini (Google – nuvem)", "groq": "Groq (Llama – nuvem)", "ollama": "Ollama (local)"}.get(x, x),
+    index=["gemini", "groq", "ollama"].index(provider) if provider in ("gemini", "groq", "ollama") else 0,
     key="config_llm_provider",
     horizontal=True,
 )
@@ -108,7 +114,8 @@ if provider_choice == "gemini":
         key="config_llm_api_key",
         help="Obtenha em https://aistudio.google.com/apikey",
     )
-    api_key_to_use = api_key_input.strip() or api_key_current
+    # Só reutilizar chave salva se o provedor já era Gemini
+    api_key_to_use = api_key_input.strip() or (api_key_current if provider == "gemini" else "")
     try:
         gemini_models = fetch_gemini_models(api_key_to_use) if api_key_to_use else list(GEMINI_FALLBACK_MODELS)
     except Exception:
@@ -122,6 +129,31 @@ if provider_choice == "gemini":
         index=min(default_idx, len(gemini_models) - 1) if gemini_models else 0,
         key="config_llm_model",
         help="Gemini 3.1 Flash Lite oferece a melhor quota no free tier.",
+    )
+    if api_key_current and not api_key_input.strip():
+        st.info("Uma chave API já está configurada. Digite uma nova acima para substituir e clique em Salvar.")
+elif provider_choice == "groq":
+    api_key_input = st.text_input(
+        "Chave API Groq",
+        value="",
+        type="password",
+        placeholder="Cole a chave do Groq (obrigatório ao usar Groq)" if provider != "groq" else ("••••••••" if api_key_current else "Cole a chave do Groq"),
+        key="config_llm_api_key_groq",
+        help="Obtenha em https://console.groq.com/keys — ao trocar de Gemini para Groq, cole a chave Groq aqui.",
+    )
+    # Só reutilizar chave salva se o provedor já era Groq (evita usar chave Gemini como Groq)
+    api_key_to_use = api_key_input.strip() or (api_key_current if provider == "groq" else "")
+    if provider_choice == "groq" and not api_key_to_use:
+        st.warning("Cole a chave API do Groq acima e clique em Salvar. A chave do Gemini não funciona no Groq.")
+    model_default = model_current or DEFAULT_LLM_MODEL_GROQ
+    default_idx_g = next((i for i, (mid, _) in enumerate(GROQ_FALLBACK_MODELS) if mid == model_default), 0)
+    model_choice = st.selectbox(
+        "Modelo Groq",
+        options=[mid for mid, _ in GROQ_FALLBACK_MODELS],
+        format_func=lambda mid: next((d for m, d in GROQ_FALLBACK_MODELS if m == mid), mid),
+        index=min(default_idx_g, len(GROQ_FALLBACK_MODELS) - 1) if GROQ_FALLBACK_MODELS else 0,
+        key="config_llm_model_groq",
+        help="Llama 3.3 70B Versatile é o modelo padrão recomendado.",
     )
     if api_key_current and not api_key_input.strip():
         st.info("Uma chave API já está configurada. Digite uma nova acima para substituir e clique em Salvar.")
@@ -159,7 +191,7 @@ else:
 
 if st.button("Salvar configuração do modelo", key="config_save_llm"):
     save_llm_config(
-        api_key=api_key_to_use if provider_choice == "gemini" else (llm_config.get("api_key") or ""),
+        api_key=api_key_to_use if provider_choice in ("gemini", "groq") else (llm_config.get("api_key") or ""),
         provider=provider_choice,
         model=(model_choice or "").strip() if model_choice else "",
         ollama_base_url=ollama_base_to_save if provider_choice == "ollama" else (llm_config.get("ollama_base_url") or ""),

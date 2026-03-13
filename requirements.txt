@@ -10,4 +10,6 @@ pysus
 langgraph>=0.2.70,<0.6
 langchain-core>=0.1
 google-generativeai
+groq
 rapidfuzz
+pyyaml

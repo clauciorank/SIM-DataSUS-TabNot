@@ -233,8 +233,24 @@ def _depara_path() -> str:
     return _silver_parquet("cid10_depara.parquet").replace("'", "''") if p.exists() else ""
 
 
+def _opts_capitulos_from_view(con) -> list:
+    """Opções de capítulo a partir da view, para garantir mesmo nome usado nos dados (ex.: Capítulo IX - Doenças do aparelho circulatório)."""
+    try:
+        rows = con.execute(
+            f"SELECT DISTINCT causa_cid10_capitulo_desc FROM {VIEW_ANALISE} "
+            "WHERE causa_cid10_capitulo_desc IS NOT NULL AND TRIM(COALESCE(CAST(causa_cid10_capitulo_desc AS VARCHAR), '')) != '' "
+            "ORDER BY 1"
+        ).fetchall()
+        return [r[0] for r in rows] if rows else []
+    except Exception:
+        return []
+
+
 def _opts_capitulos_silver(con) -> list:
-    """Opções de capítulo CID-10. Preferência: depara (por intervalo); fallback: legenda por letra."""
+    """Opções de capítulo CID-10. Preferência: nomes da view (batem com filtro); depois depara; fallback: legenda por letra."""
+    cap_from_view = _opts_capitulos_from_view(con)
+    if cap_from_view:
+        return cap_from_view
     d_path = _depara_path()
     if d_path:
         try:

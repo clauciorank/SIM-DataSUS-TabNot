@@ -1,6 +1,7 @@
 """
 Contexto de causas/doenças para o agente: mapeia termos da pergunta para filtros SQL.
-Facilita que perguntas como "óbitos por dengue" ou "mortes por COVID" gerem SQL correta.
+Os valores de capítulo (causa_cid10_capitulo_desc) usados na SQL devem ser os que a view retorna;
+o schema enriquecido injeta na base (DADOS REAIS) a lista exata da view para o agente.
 """
 import re
 from typing import List, Tuple

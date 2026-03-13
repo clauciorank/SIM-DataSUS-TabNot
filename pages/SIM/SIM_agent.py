@@ -20,6 +20,12 @@ if provider == "gemini" and not api_key:
         "A chave não é exibida após salvar."
     )
     st.stop()
+if provider == "groq" and not api_key:
+    st.warning(
+        "Configure a chave de API do Groq e o modelo em **Configurações** para usar o agente. "
+        "Obtenha em https://console.groq.com/keys"
+    )
+    st.stop()
 if provider == "ollama":
     if not (llm_config.get("model") or "").strip():
         st.warning("Configure o modelo Ollama em **Configurações** (ex.: llama3.2, mistral).")

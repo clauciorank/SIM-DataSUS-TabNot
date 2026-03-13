@@ -1,8 +1,15 @@
 """
-Listagem de modelos disponíveis: Gemini (API Google) e Ollama (local).
+Listagem de modelos disponíveis: Gemini (API Google), Groq e Ollama (local).
 Usado na página de configurações para popular o seletor de modelo.
 """
 from typing import List, Tuple
+
+# Modelos Groq conhecidos (Llama via Groq)
+GROQ_FALLBACK_MODELS: List[Tuple[str, str]] = [
+    ("llama-3.3-70b-versatile", "Llama 3.3 70B Versatile (Groq)"),
+    ("llama-3.1-8b-instant", "Llama 3.1 8B Instant (Groq)"),
+    ("llama-3.1-70b-versatile", "Llama 3.1 70B Versatile (Groq)"),
+]
 
 # Modelos Gemini conhecidos (fallback quando a API não estiver disponível); melhor quota primeiro
 GEMINI_FALLBACK_MODELS: List[Tuple[str, str]] = [

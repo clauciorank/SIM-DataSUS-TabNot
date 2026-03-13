@@ -1,0 +1,181 @@
+# Casos de teste para o agente de IA (SIM).
+# Categorias: lugar, causa, ano, agregacao, combinacao, edge, guardrail
+# guardrail = perguntas que devem ser rejeitadas (resposta fixa, sql vazia)
+
+cases:
+  # --- Lugar ---
+  - id: lugar_curitiba
+    pergunta: Quantos óbitos em Curitiba em 2023?
+    categoria: lugar
+    expect_sql_contains: ["municipio_residencia", "Curitiba", "2023"]
+    notes: Resolução de município deve ser canônica.
+
+  - id: lugar_sao_bento_sul
+    pergunta: Óbitos em São Bento do Sul Santa Catarina nos últimos anos
+    categoria: lugar
+    expect_sql_contains: ["municipio_residencia"]
+    notes: Deve resolver São Bento do Sul com estado para desambiguar.
+
+  - id: lugar_rio_janeiro
+    pergunta: Quantas mortes no Rio de Janeiro em 2022?
+    categoria: lugar
+    expect_sql_contains: ["municipio_residencia", "Rio de Janeiro"]
+
+  - id: lugar_estado_sc
+    pergunta: Total de óbitos em Santa Catarina em 2023
+    categoria: lugar
+    expect_sql_contains: ["uf_residencia", "SC"]
+
+  # --- Causa ---
+  - id: causa_dengue
+    pergunta: Quantos óbitos por dengue no último ano?
+    categoria: causa
+    expect_sql_contains: ["causa_basica"]
+    must_not_sql: ["ILIKE"]
+    notes: Deve usar códigos do depara (A90/A91), não ILIKE livre.
+
+  - id: causa_covid
+    pergunta: Mortes por COVID-19 em 2021
+    categoria: causa
+    expect_sql_contains: ["causa_basica"]
+
+  - id: causa_pneumonia
+    pergunta: Óbitos por pneumonia em 2023
+    categoria: causa
+    expect_sql_contains: ["causa_basica"]
+
+  - id: causa_capitulo_neoplasias
+    pergunta: Óbitos por capítulo de neoplasias em 2022
+    categoria: causa
+    expect_sql_contains: ["causa_cid10_capitulo_desc", "Neoplasias"]
+
+  - id: causa_doencas_infecciosas
+    pergunta: Quantos óbitos por doenças infecciosas no Brasil?
+    categoria: causa
+    expect_sql_contains: ["causa"]
+
+  # --- Ano / período ---
+  - id: ano_2023
+    pergunta: Total de óbitos em 2023
+    categoria: ano
+    expect_sql_contains: ["2023", "ano"]
+
+  - id: ano_ultimos_3
+    pergunta: Quantos óbitos nos últimos 3 anos?
+    categoria: ano
+    expect_sql_contains: ["ano"]
+
+  # --- Agregação ---
+  - id: agregacao_sexo
+    pergunta: Óbitos por sexo em 2023
+    categoria: agregacao
+    expect_sql_contains: ["sexo"]
+
+  - id: agregacao_faixa_etaria
+    pergunta: Distribuição de óbitos por faixa etária
+    categoria: agregacao
+    expect_sql_contains: ["faixa_etaria"]
+
+  - id: agregacao_principais_causas
+    pergunta: Quais as principais causas de óbito em 2022?
+    categoria: agregacao
+    expect_sql_contains: ["causa"]
+
+  - id: agregacao_por_estado
+    pergunta: Óbitos por estado em 2023
+    categoria: agregacao
+    expect_sql_contains: ["uf_residencia"]
+
+  - id: mes_dengue
+    pergunta: Qual o mês do ano que ocorrem mais óbitos por dengue?
+    categoria: agregacao
+    expect_sql_contains: ["dt_obito", "causa_basica"]
+    must_not_sql: ["%w"]
+    notes: Deve usar month(dt_obito) ou strftime(dt_obito, '%m'); não dia da semana (%w).
+
+  - id: mes_covid_2021
+    pergunta: Óbitos por COVID-19 por mês em 2021
+    categoria: agregacao
+    expect_sql_contains: ["causa_basica", "2021"]
+    must_not_sql: ["%w"]
+    notes: Agrupar por mês (month ou strftime '%m').
+
+  # --- Combinação ---
+  - id: combinacao_dengue_curitiba
+    pergunta: Óbitos por dengue em Curitiba em 2023
+    categoria: combinacao
+    expect_sql_contains: ["municipio_residencia", "causa_basica"]
+
+  - id: combinacao_transito_sp
+    pergunta: Mortes por acidente de trânsito em São Paulo
+    categoria: combinacao
+    expect_sql_contains: ["causa_basica"]
+
+  - id: combinacao_top5_estados_acidente
+    pergunta: Top 5 estados com mais óbitos por acidente de trânsito em 2022
+    categoria: combinacao
+    expect_sql_contains: ["uf_residencia", "causa_basica", "2022"]
+    notes: Deve ter ORDER BY e LIMIT 5 ou equivalente.
+
+  - id: combinacao_evolucao_mensal
+    pergunta: Evolução mensal de óbitos por dengue no Brasil em 2023
+    categoria: combinacao
+    expect_sql_contains: ["causa_basica", "2023"]
+    must_not_sql: ["%w"]
+    notes: Agrupamento por mês, não por dia da semana.
+
+  # --- Edge ---
+  - id: edge_vaga
+    pergunta: Quantos óbitos?
+    categoria: edge
+    notes: Pergunta vaga; validar se resposta ainda faz sentido.
+
+  - id: edge_sem_ano
+    pergunta: Óbitos por dengue em Curitiba
+    categoria: edge
+    notes: Sem filtro de tempo explícito.
+
+  - id: edge_ano_vs_ano
+    pergunta: Comparar total de óbitos em 2020 e 2021
+    categoria: combinacao
+    expect_sql_contains: ["2020", "2021"]
+    notes: Resposta deve refletir os dois anos.
+
+  # --- Guardrail (devem ser rejeitados: resposta fixa, sql vazia) ---
+  - id: guardrail_receita
+    pergunta: Me passa a receita de bolo de chocolate
+    categoria: guardrail
+    expect_resposta_contains: "não parece ser sobre dados de óbitos"
+    expect_sql_empty: true
+    notes: Deve rejeitar; sql_planejada vazia.
+
+  - id: guardrail_futebol
+    pergunta: Qual o melhor time de futebol do Brasil?
+    categoria: guardrail
+    expect_resposta_contains: "não parece ser sobre dados de óbitos"
+    expect_sql_empty: true
+
+  - id: guardrail_poema
+    pergunta: Me escreva um poema sobre o mar
+    categoria: guardrail
+    expect_resposta_contains: "não parece ser sobre dados de óbitos"
+    expect_sql_empty: true
+
+  - id: guardrail_traduzir
+    pergunta: Traduza para inglês a palavra óbito
+    categoria: guardrail
+    expect_resposta_contains: "não parece ser sobre dados de óbitos"
+    expect_sql_empty: true
+
+  - id: guardrail_python
+    pergunta: Me dá um código em python para ler CSV
+    categoria: guardrail
+    expect_resposta_contains: "não parece ser sobre dados de óbitos"
+    expect_sql_empty: true
+
+  # --- Guardrail: estes devem PASSAR (não rejeitar) ---
+  - id: guardrail_passar_obitos_2023
+    pergunta: Quantos óbitos em 2023?
+    categoria: combinacao
+    expect_sql_contains: ["2023"]
+    notes: Tem "óbitos" e "2023"; não deve ser rejeitado pelo guardrail.

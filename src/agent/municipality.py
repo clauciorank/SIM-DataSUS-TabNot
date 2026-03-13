@@ -1,8 +1,8 @@
 """
 Resolução fuzzy de nomes de municípios para uso na SQL.
-Prioriza cidades conhecidas e usa estado (UF) para disambiguar (ex.: São Bento do Sul, SC).
-Ferramenta resolve_place(phrase) para o agente: recebe frase extraída pela IA e devolve nome canônico.
-Estados: carregados de reference/municipios/estados.csv se existir (versionável); senão lista fixa.
+Lista de municípios e UF vem da view v_obitos_analise (DISTINCT municipio_residencia, uf_residencia).
+Prioriza cidades conhecidas e usa estado (UF) para disambiguar.
+Estados: reference/municipios/estados.csv se existir; senão lista fixa.
 """
 import re
 from pathlib import Path
@@ -63,44 +63,27 @@ _municipios_uf_cache: Optional[List[Tuple[str, str]]] = None
 
 
 def _load_municipalities() -> List[str]:
-    """Carrega lista distinta de municipio_residencia da gold. Usa cache."""
+    """Carrega lista distinta de municipio_residencia da gold. Usa cache (preenchido por warm_all_caches)."""
     global _municipios_cache
     if _municipios_cache is not None:
         return _municipios_cache
-    try:
-        import duckdb
-        con = duckdb.connect(str(GOLD_DB), read_only=True)
-        try:
-            rows = con.execute(
-                "SELECT DISTINCT municipio_residencia FROM v_obitos_analise "
-                "WHERE municipio_residencia IS NOT NULL AND TRIM(CAST(municipio_residencia AS VARCHAR)) != ''"
-            ).fetchall()
-            _municipios_cache = [str(r[0]).strip() for r in rows if r[0]]
-        finally:
-            con.close()
-    except Exception:
+    if GOLD_DB.is_file():
+        from src.agent.db_cache import warm_all_caches
+        warm_all_caches()
+    if _municipios_cache is None:
         _municipios_cache = []
     return _municipios_cache
 
 
 def _load_municipalities_with_uf() -> List[Tuple[str, str]]:
-    """Carrega (municipio_residencia, uf_residencia) distintos da gold. Usa cache."""
+    """Carrega (municipio_residencia, uf_residencia) distintos da gold. Usa cache (preenchido por warm_all_caches)."""
     global _municipios_uf_cache
     if _municipios_uf_cache is not None:
         return _municipios_uf_cache
-    try:
-        import duckdb
-        con = duckdb.connect(str(GOLD_DB), read_only=True)
-        try:
-            rows = con.execute(
-                "SELECT DISTINCT municipio_residencia, uf_residencia FROM v_obitos_analise "
-                "WHERE municipio_residencia IS NOT NULL AND TRIM(CAST(municipio_residencia AS VARCHAR)) != '' "
-                "AND uf_residencia IS NOT NULL"
-            ).fetchall()
-            _municipios_uf_cache = [(str(r[0]).strip(), str(r[1]).strip()) for r in rows if r[0] and r[1]]
-        finally:
-            con.close()
-    except Exception:
+    if GOLD_DB.is_file():
+        from src.agent.db_cache import warm_all_caches
+        warm_all_caches()
+    if _municipios_uf_cache is None:
         _municipios_uf_cache = []
     return _municipios_uf_cache
 
@@ -224,6 +207,17 @@ def extract_place_heuristic(pergunta: str) -> str:
             take.append(w)
         if take:
             return " ".join(take).strip()[:120]
+
+    # Sigla de UF isolada (ex.: "no PR", "em SC", "estado de SP")
+    uf_match = re.search(
+        r"\b(?:no estado de?|na uf|estado|uf)?\s*"
+        r"\b(AC|AL|AM|AP|BA|CE|DF|ES|GO|MA|MG|MS|MT|PA|PB|PE|PI|PR|RJ|RN|RO|RR|RS|SC|SE|SP|TO)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if uf_match:
+        return uf_match.group(1).upper()
+
     return ""
 
 

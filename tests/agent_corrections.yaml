@@ -1,0 +1,8 @@
+# Correções/expectativas por case_id (sobrescreve ou complementa agent_cases.yaml).
+# Use após revisão manual para que o runner aplique estas expectativas no próximo run.
+#
+# Exemplo:
+# lugar_curitiba:
+#   expect_sql_contains: ["municipio_residencia = 'Curitiba'"]
+# causa_dengue:
+#   expect_sql_contains: ["causa_basica LIKE 'A90%'", "causa_basica LIKE 'A91%'"]

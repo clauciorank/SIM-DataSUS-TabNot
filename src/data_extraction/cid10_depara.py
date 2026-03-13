@@ -108,6 +108,92 @@ def _normalize_column_names(capitulos: pd.DataFrame, subcategorias: pd.DataFrame
         subcategorias.rename(columns={"DESCRIÇÃO": "DESCRICAO"}, inplace=True)
 
 
+def _load_capitulos_from_reference() -> Optional[pd.DataFrame]:
+    """
+    Carrega apenas o CSV CAPITULOS a partir de reference/cid10 (ZIP ou CSVs soltos).
+    Retorna o DataFrame com colunas CATINIC, CATFIM, DESCRICAO ou None se não houver fonte.
+    """
+    if not REFERENCE_CID10_DIR.is_dir():
+        return None
+    # 1) ZIP
+    zip_path = REFERENCE_CID10_DIR / NAME_ZIP
+    if not zip_path.is_file():
+        for name in REFERENCE_CID10_DIR.iterdir():
+            if name.suffix.upper() == ".ZIP" and "CID10" in name.name.upper():
+                zip_path = name
+                break
+        else:
+            zip_path = None
+    if zip_path is not None and zip_path.is_file():
+        try:
+            with zipfile.ZipFile(zip_path, "r") as z:
+                names = {n.upper(): n for n in z.namelist()}
+                cap_name = next((names.get(n) for n in NAMES_CAPITULOS if n.upper() in names), None)
+                if not cap_name:
+                    return None
+                with z.open(cap_name) as f:
+                    capitulos = pd.read_csv(f, sep=SEP, encoding=ENCODING, dtype=str, keep_default_na=False)
+                capitulos.columns = [c.strip().upper() for c in capitulos.columns]
+                if "DESCRIÇÃO" in capitulos.columns and "DESCRICAO" not in capitulos.columns:
+                    capitulos.rename(columns={"DESCRIÇÃO": "DESCRICAO"}, inplace=True)
+                if "CATINIC" not in capitulos.columns or "CATFIM" not in capitulos.columns or "DESCRICAO" not in capitulos.columns:
+                    return None
+                return capitulos
+        except Exception:
+            return None
+    # 2) CSV solto
+    for f in REFERENCE_CID10_DIR.iterdir():
+        if not f.is_file():
+            continue
+        if f.name.upper() in (n.upper() for n in NAMES_CAPITULOS):
+            try:
+                capitulos = pd.read_csv(f, sep=SEP, encoding=ENCODING, dtype=str, keep_default_na=False)
+                capitulos.columns = [c.strip().upper() for c in capitulos.columns]
+                if "DESCRIÇÃO" in capitulos.columns and "DESCRICAO" not in capitulos.columns:
+                    capitulos.rename(columns={"DESCRIÇÃO": "DESCRICAO"}, inplace=True)
+                if "CATINIC" in capitulos.columns and "CATFIM" in capitulos.columns and "DESCRICAO" in capitulos.columns:
+                    return capitulos
+            except Exception:
+                pass
+            break
+    return None
+
+
+def _legenda_capitulo_from_capitulos_df(capitulos: pd.DataFrame, silver_path: Path) -> Path:
+    """Gera legenda_cid10_capitulo.parquet (letra, descricao) a partir do DataFrame de capítulos já carregado."""
+    cap = capitulos[["CATINIC", "CATFIM", "DESCRICAO"]].copy()
+    cap["_inic"] = cap["CATINIC"].astype(str).apply(_normalize_codigo_for_compare)
+    cap["_fim"] = cap["CATFIM"].astype(str).apply(_normalize_codigo_for_compare)
+    letters = [chr(i) for i in range(ord("A"), ord("Z") + 1)]
+    rows = []
+    for letra in letters:
+        key = _normalize_codigo_for_compare(letra + "00")
+        descricao = ""
+        for _, c in cap.iterrows():
+            if c["_inic"] <= key <= c["_fim"]:
+                descricao = (c["DESCRICAO"] or "").strip()
+                break
+        rows.append({"letra": letra, "descricao": descricao})
+    df = pd.DataFrame(rows)
+    silver_path.mkdir(parents=True, exist_ok=True)
+    out_path = silver_path / "legenda_cid10_capitulo.parquet"
+    df.to_parquet(out_path, index=False)
+    return out_path
+
+
+def build_legenda_cid10_capitulo(silver_path: Optional[Path] = None) -> Optional[Path]:
+    """
+    Gera legenda_cid10_capitulo.parquet (letra, descricao) a partir do CSV CAPITULOS
+    em reference/cid10 (ZIP ou CSVs). Descrição é a DESCRICAO do arquivo (ex.: "Capítulo IX - Doenças do aparelho circulatório").
+    Retorna o path do parquet ou None se não houver fonte em reference/cid10.
+    """
+    capitulos = _load_capitulos_from_reference()
+    if capitulos is None or capitulos.empty:
+        return None
+    silver_path = Path(silver_path or SILVER_PATH)
+    return _legenda_capitulo_from_capitulos_df(capitulos, silver_path)
+
+
 def _load_from_reference_dir() -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
     """
     Carrega CAPITULOS e SUBCATEGORIAS a partir de reference/cid10.
@@ -223,7 +309,32 @@ def build_cid10_depara(silver_path: Optional[Path] = None, zip_url: Optional[str
     capitulos, subcategorias = loaded
     depara = _build_depara_from_dfs(capitulos, subcategorias)
     depara.to_parquet(out_path, index=False)
+    _legenda_capitulo_from_capitulos_df(capitulos, silver_path)
     return out_path
+
+
+def _legenda_capitulo_from_depara_parquet(silver_path: Path) -> None:
+    """Se legenda_cid10_capitulo.parquet não existir mas cid10_depara.parquet existir, deriva a legenda do depara."""
+    legenda_path = silver_path / "legenda_cid10_capitulo.parquet"
+    if legenda_path.exists():
+        return
+    depara_path = silver_path / "cid10_depara.parquet"
+    if not depara_path.is_file():
+        return
+    try:
+        df = pd.read_parquet(depara_path)
+        if df is None or df.empty or "codigo" not in df.columns or "capitulo_descricao" not in df.columns:
+            return
+        df["letra"] = df["codigo"].astype(str).str.strip().str.upper().str[:1]
+        legenda = (
+            df[["letra", "capitulo_descricao"]]
+            .drop_duplicates(subset=["letra"])
+            .rename(columns={"capitulo_descricao": "descricao"})
+            .sort_values("letra")
+        )
+        legenda.to_parquet(legenda_path, index=False)
+    except Exception:
+        pass
 
 
 def ensure_cid10_depara(silver_path: Optional[Path] = None) -> bool:
@@ -238,12 +349,14 @@ def ensure_cid10_depara(silver_path: Optional[Path] = None) -> bool:
         try:
             df = pd.read_parquet(out_path)
             if df is not None and len(df) > 0 and "codigo" in df.columns and "capitulo_descricao" in df.columns:
+                _legenda_capitulo_from_depara_parquet(silver_path)
                 return True
         except Exception:
             pass
         out_path.unlink(missing_ok=True)
     try:
         build_cid10_depara(silver_path=silver_path)
+        _legenda_capitulo_from_depara_parquet(silver_path)
         return True
     except Exception:
         return False

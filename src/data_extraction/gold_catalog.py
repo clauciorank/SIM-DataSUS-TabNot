@@ -61,37 +61,9 @@ def ensure_silver_legendas(silver_path: Optional[Path] = None) -> None:
             ('5', 'União estável'), ('9', 'Ignorado'), ('0', 'Ignorado')
         ) AS t(codigo, descricao)
     """)
-    # CID-10 oficial (OMS/Datasus): uma linha por letra; descrição do capítulo pode repetir (ex.: A e B = mesmo capítulo).
-    write_parquet("legenda_cid10_capitulo", """
-        CREATE OR REPLACE TABLE legenda_cid10_capitulo AS SELECT * FROM (VALUES
-            ('A', 'Doenças infecciosas e parasitárias (A00-B99)'),
-            ('B', 'Doenças infecciosas e parasitárias (A00-B99)'),
-            ('C', 'Neoplasias (C00-D48)'),
-            ('D', 'Doenças do sangue e dos órgãos hematopoéticos e alguns transtornos imunitários (D50-D89)'),
-            ('E', 'Doenças endócrinas, nutricionais e metabólicas (E00-E90)'),
-            ('F', 'Transtornos mentais e comportamentais (F00-F99)'),
-            ('G', 'Doenças do sistema nervoso (G00-G99)'),
-            ('H', 'Doenças do olho, ouvido e anexos (H00-H95)'),
-            ('I', 'Doenças do aparelho circulatório (I00-I99)'),
-            ('J', 'Doenças do aparelho respiratório (J00-J99)'),
-            ('K', 'Doenças do aparelho digestivo (K00-K93)'),
-            ('L', 'Doenças da pele e tecido subcutâneo (L00-L99)'),
-            ('M', 'Doenças osteomuscular e tecido conjuntivo (M00-M99)'),
-            ('N', 'Doenças do aparelho geniturinário (N00-N99)'),
-            ('O', 'Gravidez, parto e puerpério (O00-O99)'),
-            ('P', 'Afecções do período perinatal (P00-P96)'),
-            ('Q', 'Malformações congênitas e anomalias cromossômicas (Q00-Q99)'),
-            ('R', 'Sintomas e achados anormais (R00-R99)'),
-            ('S', 'Lesões e envenenamentos (S00-T98)'),
-            ('T', 'Lesões e envenenamentos (S00-T98)'),
-            ('U', 'Códigos para propósitos especiais (U00-U99)'),
-            ('V', 'Causas externas de morbidade e mortalidade (V01-Y98)'),
-            ('W', 'Causas externas de morbidade e mortalidade (V01-Y98)'),
-            ('X', 'Causas externas de morbidade e mortalidade (V01-Y98)'),
-            ('Y', 'Causas externas de morbidade e mortalidade (V01-Y98)'),
-            ('Z', 'Fatores que influenciam estado de saúde (Z00-Z99)')
-        ) AS t(letra, descricao)
-    """)
+    # CID-10: legenda de capítulos gerada a partir do CSV em reference/cid10 (ZIP ou CSVs).
+    from src.data_extraction.cid10_depara import build_legenda_cid10_capitulo
+    build_legenda_cid10_capitulo(silver_path)
     con.close()
 
 
