@@ -1,6 +1,6 @@
 """
 Resolução fuzzy de nomes de municípios para uso na SQL.
-Lista de municípios e UF vem da view v_obitos_analise (DISTINCT municipio_residencia, uf_residencia).
+Lista de municípios e UF vem da view v_obitos_completo (DISTINCT municipio_residencia, uf_residencia).
 Prioriza cidades conhecidas e usa estado (UF) para disambiguar.
 Estados: reference/municipios/estados.csv se existir; senão lista fixa.
 """

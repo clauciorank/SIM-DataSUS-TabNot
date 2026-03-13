@@ -56,7 +56,7 @@ As pastas são criadas automaticamente quando necessário:
 |----------|-------------------|----------|
 | Raw      | `data/SIM/raw/`   | Parquets baixados do FTP (por UF/ano). |
 | Silver   | `data/SIM/silver/`| Parquets tratados (óbitos, legendas, municípios). |
-| Gold     | `data/SIM/gold/`  | DuckDB com views `v_obitos_completo` e `v_obitos_analise`. |
+| Gold     | `data/SIM/gold/`  | DuckDB com view `v_obitos_completo` (idade, idade_anos, faixa_etaria, causas, etc.). |
 
 - **Config**: `data/config.db` (SQLite) – preferências de anos e UFs; criado ao usar Configurações.
 

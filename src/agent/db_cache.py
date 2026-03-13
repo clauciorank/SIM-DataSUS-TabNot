@@ -188,13 +188,13 @@ def _warm_municipalities(con) -> None:
     try:
         if mun_mod._municipios_cache is None:
             rows = con.execute(
-                "SELECT DISTINCT municipio_residencia FROM v_obitos_analise "
+                "SELECT DISTINCT municipio_residencia FROM v_obitos_completo "
                 "WHERE municipio_residencia IS NOT NULL AND TRIM(CAST(municipio_residencia AS VARCHAR)) != ''"
             ).fetchall()
             mun_mod._municipios_cache = [str(r[0]).strip() for r in rows if r[0]]
         if mun_mod._municipios_uf_cache is None:
             rows = con.execute(
-                "SELECT DISTINCT municipio_residencia, uf_residencia FROM v_obitos_analise "
+                "SELECT DISTINCT municipio_residencia, uf_residencia FROM v_obitos_completo "
                 "WHERE municipio_residencia IS NOT NULL AND TRIM(CAST(municipio_residencia AS VARCHAR)) != '' "
                 "AND uf_residencia IS NOT NULL"
             ).fetchall()

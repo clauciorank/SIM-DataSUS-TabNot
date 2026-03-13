@@ -173,119 +173,112 @@ def build_gold_catalog(
     db_path = gold_path / "obitos.duckdb"
     con = duckdb.connect(str(db_path))
 
-    con.execute(f"""
-        CREATE OR REPLACE VIEW v_obitos_completo AS
-        SELECT
-            o.ORIGEM AS origem,
-            o.TIPOBITO AS tipo_obito,
-            lt.descricao AS tipo_obito_desc,
-            o.dt_obito,
-            year(o.dt_obito) AS ano,
-            o.HORAOBITO AS hora_obito,
-            o."NATURAL" AS natural,
-            o.CODMUNNATU AS cod_mun_nascimento,
-            o.dt_nascimento,
-            o.IDADE AS idade,
-            o.SEXO AS sexo,
-            ls.descricao AS sexo_desc,
-            o.RACACOR AS racacor,
-            lr.descricao AS racacor_desc,
-            o.ESTCIV AS estciv,
-            le.descricao AS estciv_desc,
-            o.ESC AS esc,
-            o.ESC2010 AS esc_2010,
-            o.OCUP AS ocup,
-            o.CODMUNRES AS cod_mun_residencia,
-            m_res.geocodigo AS geocodigo_residencia,
-            m_res.municipio AS municipio_residencia,
-            m_res.uf AS uf_residencia,
-            o.LOCOCOR AS loc_ocorrencia,
-            loc.descricao AS local_ocorrencia_desc,
-            o.CODMUNOCOR AS cod_mun_ocorrencia,
-            m_ocor.municipio AS municipio_ocorrencia,
-            m_ocor.uf AS uf_ocorrencia,
-            TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) AS causa_basica,
-            {cid_select}
-            o.CIRCOBITO AS circ_obito,
-            lc.descricao AS circunstancia_desc,
-            o.PESO AS peso,
-            o.SEMAGESTAC AS sem_gestacao,
-            o.GESTACAO AS gestacao,
-            o.PARTO AS parto,
-            o.CONTADOR AS contador
-        FROM read_parquet('{o}') o
-        LEFT JOIN read_parquet('{m}') m_res
-            ON m_res.codigo = TRIM(CAST(o.CODMUNRES AS VARCHAR))
-        LEFT JOIN read_parquet('{m}') m_ocor
-            ON m_ocor.codigo = TRIM(CAST(o.CODMUNOCOR AS VARCHAR))
-        LEFT JOIN read_parquet('{ls_path}') ls
-            ON ls.codigo = CAST(COALESCE(TRY_CAST(o.SEXO AS INT), 0) AS VARCHAR)
-        LEFT JOIN read_parquet('{lr_path}') lr
-            ON lr.codigo = COALESCE(CAST(o.RACACOR AS VARCHAR), '9')
-        LEFT JOIN read_parquet('{lc_path}') lc
-            ON lc.codigo = COALESCE(CAST(o.CIRCOBITO AS VARCHAR), '0')
-        LEFT JOIN read_parquet('{lt_path}') lt
-            ON lt.codigo = COALESCE(CAST(o.TIPOBITO AS VARCHAR), '0')
-        LEFT JOIN read_parquet('{loc_path}') loc
-            ON loc.codigo = COALESCE(CAST(o.LOCOCOR AS VARCHAR), '0')
-        LEFT JOIN read_parquet('{le_path}') le
-            ON le.codigo = COALESCE(CAST(o.ESTCIV AS VARCHAR), '9')
-        LEFT JOIN read_parquet('{lcid_path}') lcid
-            ON lcid.letra = UPPER(SUBSTR(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')), 1, 1))
-        LEFT JOIN read_parquet('{lcod_path}') lcod
-            ON lcod.codigo = TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), ''))
-        {cid_join}
-    """)
-
-    # View para análise: mesma base + faixa_etaria calculada em SQL (evita carregar tudo em memória)
-    con.execute("""
-        CREATE OR REPLACE VIEW v_obitos_analise AS
-        SELECT
-            v.origem, v.tipo_obito, v.tipo_obito_desc, v.dt_obito, v.ano, v.hora_obito, v.natural,
-            v.cod_mun_nascimento, v.dt_nascimento, v.idade, v.sexo, v.sexo_desc, v.racacor, v.racacor_desc,
-            v.estciv, v.estciv_desc, v.esc, v.esc_2010, v.ocup,             v.cod_mun_residencia, v.geocodigo_residencia, v.municipio_residencia,
-            v.uf_residencia, v.loc_ocorrencia, v.local_ocorrencia_desc, v.cod_mun_ocorrencia, v.municipio_ocorrencia,
-            v.uf_ocorrencia, v.causa_basica, v.causa_cid10_capitulo_desc, v.causa_cid10_desc, v.circ_obito, v.circunstancia_desc,
-            v.peso, v.sem_gestacao, v.gestacao, v.parto, v.contador,
+    faixa_etaria_sql = """
             CASE
-                WHEN SUBSTR(v.ida, 1, 1) IN ('0','9') OR LENGTH(v.ida) < 3 THEN 'Ignorado'
-                WHEN SUBSTR(v.ida, 1, 1) IN ('1','2','3') THEN '< 1 ano'
-                WHEN SUBSTR(v.ida, 1, 1) = '4' THEN
+                WHEN SUBSTR(b.ida, 1, 1) IN ('0','9') OR LENGTH(b.ida) < 3 THEN 'Ignorado'
+                WHEN SUBSTR(b.ida, 1, 1) IN ('1','2','3') THEN '< 1 ano'
+                WHEN SUBSTR(b.ida, 1, 1) = '4' THEN
                     CASE
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 1 THEN '< 1 ano'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 5 THEN '1-4 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 10 THEN '5-9 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 15 THEN '10-14 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 20 THEN '15-19 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 30 THEN '20-29 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 40 THEN '30-39 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 50 THEN '40-49 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 60 THEN '50-59 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 70 THEN '60-69 anos'
-                        WHEN COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0) < 80 THEN '70-79 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 1 THEN '< 1 ano'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 5 THEN '1-4 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 10 THEN '5-9 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 15 THEN '10-14 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 20 THEN '15-19 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 30 THEN '20-29 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 40 THEN '30-39 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 50 THEN '40-49 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 60 THEN '50-59 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 70 THEN '60-69 anos'
+                        WHEN COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0) < 80 THEN '70-79 anos'
                         ELSE '80+ anos'
                     END
-                WHEN SUBSTR(v.ida, 1, 1) = '5' THEN
+                WHEN SUBSTR(b.ida, 1, 1) = '5' THEN
                     CASE
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 5 THEN '1-4 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 10 THEN '5-9 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 15 THEN '10-14 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 20 THEN '15-19 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 30 THEN '20-29 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 40 THEN '30-39 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 50 THEN '40-49 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 60 THEN '50-59 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 70 THEN '60-69 anos'
-                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(v.ida, 2, 2) AS INT), 0)) < 80 THEN '70-79 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 5 THEN '1-4 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 10 THEN '5-9 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 15 THEN '10-14 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 20 THEN '15-19 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 30 THEN '20-29 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 40 THEN '30-39 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 50 THEN '40-49 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 60 THEN '50-59 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 70 THEN '60-69 anos'
+                        WHEN (100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)) < 80 THEN '70-79 anos'
                         ELSE '80+ anos'
                     END
                 ELSE 'Ignorado'
-            END AS faixa_etaria
+            END"""
+
+    con.execute(f"""
+        CREATE OR REPLACE VIEW v_obitos_completo AS
+        SELECT
+            b.origem, b.tipo_obito, b.tipo_obito_desc, b.dt_obito, b.ano, b.hora_obito, b.natural,
+            b.cod_mun_nascimento, b.dt_nascimento, b.idade,
+            CASE WHEN SUBSTR(b.ida, 1, 1) = '4' THEN TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT)
+                 WHEN SUBSTR(b.ida, 1, 1) = '5' THEN 100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)
+                 ELSE NULL END AS idade_anos,
+            {faixa_etaria_sql} AS faixa_etaria,
+            b.sexo, b.sexo_desc, b.racacor, b.racacor_desc, b.estciv, b.estciv_desc,
+            b.esc, b.esc_2010, b.ocup,
+            b.cod_mun_residencia, b.geocodigo_residencia, b.municipio_residencia, b.uf_residencia,
+            b.loc_ocorrencia, b.local_ocorrencia_desc, b.cod_mun_ocorrencia, b.municipio_ocorrencia, b.uf_ocorrencia,
+            b.causa_basica, b.causa_cid10_capitulo_desc, b.causa_cid10_desc,
+            b.circ_obito, b.circunstancia_desc, b.peso, b.sem_gestacao, b.gestacao, b.parto, b.contador
         FROM (
-            SELECT *, LPAD(TRIM(COALESCE(CAST(idade AS VARCHAR), '')), 3, '0') AS ida
-            FROM v_obitos_completo
-        ) v
+            SELECT
+                o.ORIGEM AS origem,
+                o.TIPOBITO AS tipo_obito,
+                lt.descricao AS tipo_obito_desc,
+                o.dt_obito,
+                year(o.dt_obito) AS ano,
+                o.HORAOBITO AS hora_obito,
+                o."NATURAL" AS natural,
+                o.CODMUNNATU AS cod_mun_nascimento,
+                o.dt_nascimento,
+                o.IDADE AS idade,
+                LPAD(TRIM(COALESCE(CAST(o.IDADE AS VARCHAR), '')), 3, '0') AS ida,
+                o.SEXO AS sexo,
+                ls.descricao AS sexo_desc,
+                o.RACACOR AS racacor,
+                lr.descricao AS racacor_desc,
+                o.ESTCIV AS estciv,
+                le.descricao AS estciv_desc,
+                o.ESC AS esc,
+                o.ESC2010 AS esc_2010,
+                o.OCUP AS ocup,
+                o.CODMUNRES AS cod_mun_residencia,
+                m_res.geocodigo AS geocodigo_residencia,
+                m_res.municipio AS municipio_residencia,
+                m_res.uf AS uf_residencia,
+                o.LOCOCOR AS loc_ocorrencia,
+                loc.descricao AS local_ocorrencia_desc,
+                o.CODMUNOCOR AS cod_mun_ocorrencia,
+                m_ocor.municipio AS municipio_ocorrencia,
+                m_ocor.uf AS uf_ocorrencia,
+                TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) AS causa_basica,
+                {cid_select}
+                o.CIRCOBITO AS circ_obito,
+                lc.descricao AS circunstancia_desc,
+                o.PESO AS peso,
+                o.SEMAGESTAC AS sem_gestacao,
+                o.GESTACAO AS gestacao,
+                o.PARTO AS parto,
+                o.CONTADOR AS contador
+            FROM read_parquet('{o}') o
+            LEFT JOIN read_parquet('{m}') m_res ON m_res.codigo = TRIM(CAST(o.CODMUNRES AS VARCHAR))
+            LEFT JOIN read_parquet('{m}') m_ocor ON m_ocor.codigo = TRIM(CAST(o.CODMUNOCOR AS VARCHAR))
+            LEFT JOIN read_parquet('{ls_path}') ls ON ls.codigo = CAST(COALESCE(TRY_CAST(o.SEXO AS INT), 0) AS VARCHAR)
+            LEFT JOIN read_parquet('{lr_path}') lr ON lr.codigo = COALESCE(CAST(o.RACACOR AS VARCHAR), '9')
+            LEFT JOIN read_parquet('{lc_path}') lc ON lc.codigo = COALESCE(CAST(o.CIRCOBITO AS VARCHAR), '0')
+            LEFT JOIN read_parquet('{lt_path}') lt ON lt.codigo = COALESCE(CAST(o.TIPOBITO AS VARCHAR), '0')
+            LEFT JOIN read_parquet('{loc_path}') loc ON loc.codigo = COALESCE(CAST(o.LOCOCOR AS VARCHAR), '0')
+            LEFT JOIN read_parquet('{le_path}') le ON le.codigo = COALESCE(CAST(o.ESTCIV AS VARCHAR), '9')
+            LEFT JOIN read_parquet('{lcid_path}') lcid ON lcid.letra = UPPER(SUBSTR(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')), 1, 1))
+            LEFT JOIN read_parquet('{lcod_path}') lcod ON lcod.codigo = TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), ''))
+            {cid_join}
+        ) b
     """)
+    con.execute("DROP VIEW IF EXISTS v_obitos_analise")
 
     con.close()
     return {"duckdb": str(db_path), "view": "v_obitos_completo"}

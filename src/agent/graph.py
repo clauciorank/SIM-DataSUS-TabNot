@@ -17,11 +17,6 @@ GOLD_DB = PROJECT_ROOT / "data" / "SIM" / "gold" / "obitos.duckdb"
 MAX_ROWS = 500
 MAX_TENTATIVAS = 3
 
-# Throttle só para Gemini (free tier)
-_MIN_GEMINI_INTERVAL_SEC = 13
-_last_gemini_call_time: float = 0
-
-
 class AgentState(TypedDict, total=False):
     pergunta: str
     place_phrase: str
@@ -40,16 +35,7 @@ class AgentState(TypedDict, total=False):
     llm_config: Dict[str, Any]
 
 
-def _throttle_gemini() -> None:
-    global _last_gemini_call_time
-    elapsed = time.monotonic() - _last_gemini_call_time
-    if elapsed < _MIN_GEMINI_INTERVAL_SEC:
-        time.sleep(_MIN_GEMINI_INTERVAL_SEC - elapsed)
-    _last_gemini_call_time = time.monotonic()
-
-
 def _gemini_call(api_key: str, model_id: str, system: str, user_content: str, temperature: float = 0.1) -> str:
-    _throttle_gemini()
     import google.generativeai as genai
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
@@ -58,6 +44,14 @@ def _gemini_call(api_key: str, model_id: str, system: str, user_content: str, te
     )
     full = f"{system}\n\n---\n\n{user_content}"
     response = model.generate_content(full)
+    if getattr(response, "usage_metadata", None):
+        um = response.usage_metadata
+        logger.info(
+            "gemini tokens: prompt=%s output=%s total=%s",
+            getattr(um, "prompt_token_count", None),
+            getattr(um, "candidates_token_count", None) or getattr(um, "output_token_count", None),
+            getattr(um, "total_token_count", None),
+        )
     if not response or not response.text:
         return ""
     return response.text.strip()
@@ -81,6 +75,14 @@ def _groq_call(api_key: str, model_id: str, system: str, user_content: str, temp
             temperature=temperature,
             max_completion_tokens=2048,
         )
+        if getattr(completion, "usage", None):
+            u = completion.usage
+            logger.info(
+                "groq tokens: prompt=%s completion=%s total=%s",
+                getattr(u, "prompt_tokens", None),
+                getattr(u, "completion_tokens", None),
+                getattr(u, "total_tokens", None),
+            )
         choice = (completion.choices or [None])[0]
         if not choice or not getattr(choice, "message", None):
             return ""
@@ -108,6 +110,14 @@ def _ollama_call(base_url: str, model_id: str, system: str, user_content: str, t
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = _json.loads(resp.read().decode())
+        prompt_tokens = data.get("prompt_eval_count")
+        eval_tokens = data.get("eval_count")
+        if prompt_tokens is not None or eval_tokens is not None:
+            logger.info(
+                "ollama tokens: prompt=%s output=%s",
+                prompt_tokens,
+                eval_tokens,
+            )
         return (data.get("response") or "").strip()
     except Exception as e:
         return f"Erro Ollama: {e!s}"

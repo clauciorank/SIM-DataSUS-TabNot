@@ -1,4 +1,14 @@
+import logging
+import sys
 import streamlit as st
+
+# Logs do agente (tokens, chamadas LLM) no terminal
+_agent_logger = logging.getLogger("src.agent")
+_agent_logger.setLevel(logging.INFO)
+if not _agent_logger.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    _agent_logger.addHandler(_h)
 
 # 1. Definição das páginas
 # O primeiro argumento é o caminho do arquivo, o segundo é o título exibido

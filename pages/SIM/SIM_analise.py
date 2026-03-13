@@ -1,6 +1,6 @@
 """
 Análise exploratória dos dados de óbitos (SIM).
-Otimizado: view v_obitos_analise na gold; filtros e gráficos via SQL (sem carregar tudo em memória).
+Otimizado: view v_obitos_completo na gold (idade_anos, faixa_etaria); filtros e gráficos via SQL (sem carregar tudo em memória).
 """
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -50,7 +50,7 @@ UFS_ORDEM = [
     "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
 ]
 
-VIEW_ANALISE = "v_obitos_analise"  # view com faixa_etaria; criar/atualizar gold para existir
+VIEW_ANALISE = "v_obitos_completo"  # view principal com idade_anos e faixa_etaria
 
 
 def _get_con():
@@ -383,7 +383,7 @@ if need_static:
     if not _view_exists(con):
         con.close()
         st.warning(
-            "A view **v_obitos_analise** não existe. Reconstrua a camada gold (faça um novo download ou "
+            "A view **v_obitos_completo** não existe. Reconstrua a camada gold (faça um novo download ou "
             "reprocesse os dados) para ativar a análise otimizada."
         )
         st.stop()
