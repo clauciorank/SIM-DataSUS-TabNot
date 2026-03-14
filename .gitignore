@@ -3,6 +3,8 @@
 *.duckdb
 *.dbf
 data/config.db
+data/.key
+data/llm_secrets.enc
 
 # Python
 .venv/

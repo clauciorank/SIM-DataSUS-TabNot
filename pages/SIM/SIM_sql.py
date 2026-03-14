@@ -104,10 +104,6 @@ SELECT sexo_desc, count(*) AS total FROM v_obitos_completo GROUP BY 1
     "Óbitos por ano": """
 SELECT ano, count(*) AS total FROM v_obitos_completo GROUP BY 1 ORDER BY 1
 """,
-    "Óbitos por circunstância": """
-SELECT circunstancia_desc, count(*) AS total
-FROM v_obitos_completo GROUP BY 1 ORDER BY total DESC LIMIT 15
-""",
     "Óbitos por causa (CID-10 capítulo)": """
 SELECT causa_cid10_capitulo_desc, count(*) AS total
 FROM v_obitos_completo
@@ -191,6 +187,8 @@ USE_GOLD = GOLD_DB.exists()
 DUCKDB_PATH = GOLD_DB if USE_GOLD else SILVER_DB
 camada = "gold" if USE_GOLD else "silver"
 
+if not GOLD_DB.exists():
+    st.warning("A camada gold não foi encontrada. Faça o download e processe em Download de Dados.")
 st.markdown(
     f"Execute consultas SQL sobre os dados de óbitos (camada **{camada}**). "
     + ("View principal: **`v_obitos_completo`** (todas as legendas)." if USE_GOLD else "Construa a camada gold para usar `v_obitos_completo`.")
@@ -198,10 +196,7 @@ st.markdown(
 st.markdown("---")
 
 if not SILVER_DB.exists() and not GOLD_DB.exists():
-    st.warning(
-        "Nenhum dado encontrado. Faça o download e processe em **Download de Dados** "
-        "(silver); opcionalmente construa a **view única (gold)**."
-    )
+    st.warning("A camada gold não foi encontrada. Faça o download e processe em Download de Dados.")
     st.stop()
 
 # Dicionário de dados: todas as colunas em formato tabela

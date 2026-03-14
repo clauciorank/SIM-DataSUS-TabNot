@@ -73,7 +73,7 @@ st.set_page_config(page_title="Previsão de óbitos - SIM", layout="wide")
 st.title("Previsão de óbitos (forecasting)")
 
 if not GOLD_DB.exists():
-    st.warning("A camada **gold** não foi encontrada. Faça o download e processe em **Download de Dados**.")
+    st.warning("A camada gold não foi encontrada. Faça o download e processe em Download de Dados.")
     st.stop()
 
 con = None

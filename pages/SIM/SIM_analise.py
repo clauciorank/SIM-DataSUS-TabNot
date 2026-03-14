@@ -115,21 +115,10 @@ def _normalize_todos_multiselect(key: str, all_options: list, sentinel: str):
 
 
 st.set_page_config(page_title="Análise exploratória - SIM", layout="wide")
-col_title, col_btn = st.columns([3, 1])
-with col_title:
-    st.title("📊 Análise exploratória - Óbitos (SIM)")
-with col_btn:
-    if st.button("Atualizar camada de dados analíticos", key="analise_atualizar_gold", use_container_width=True):
-        try:
-            from src.data_extraction.gold_catalog import build_gold_catalog
-            build_gold_catalog()
-            st.success("Camada de dados analíticos atualizada.")
-        except Exception as e:
-            st.error(f"Erro ao atualizar: {e}")
-        st.rerun()
+st.title("📊 Análise exploratória - Óbitos (SIM)")
 
 if not GOLD_DB.exists():
-    st.warning("A camada **gold** não foi encontrada. Faça o download e processe em **Download de Dados**.")
+    st.warning("A camada gold não foi encontrada. Faça o download e processe em Download de Dados.")
     st.stop()
 
 # Abrir conexão só quando for preciso (caches, cascata ou aplicar)
@@ -193,7 +182,7 @@ if need_mun or need_causas:
         causas_labels = _opts_causas_silver(con, list(cap_para_cascade))
         st.session_state[SK_CACHE_CAUSAS_LABELS] = causas_labels
         st.session_state[SK_CACHE_CAUSAS_CAP_KEY] = causas_cap_key
-        st.session_state["analise_causa"] = []
+        st.session_state.pop("analise_causa", None)  # deixa o widget definir o valor
     else:
         causas_labels = st.session_state.get(SK_CACHE_CAUSAS_LABELS, [])
 else:

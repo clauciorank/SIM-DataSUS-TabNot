@@ -1,8 +1,18 @@
 import shutil
 import streamlit as st
 from pathlib import Path
+from datetime import datetime
 
 import pandas as pd
+
+# Lista de estados para o multiselect (mesmo que em configuration antes)
+ESTADOS_BR = [
+    "Acre", "Alagoas", "Amapá", "Amazonas", "Bahia", "Ceará", "Distrito Federal",
+    "Espírito Santo", "Goiás", "Maranhão", "Mato Grosso", "Mato Grosso do Sul",
+    "Minas Gerais", "Pará", "Paraíba", "Paraná", "Pernambuco", "Piauí",
+    "Rio de Janeiro", "Rio Grande do Norte", "Rio Grande do Sul", "Rondônia",
+    "Roraima", "Santa Catarina", "São Paulo", "Sergipe", "Tocantins",
+]
 
 # Mapeamento estado (nome completo) -> sigla UF para o FTP
 UF_POR_NOME = {
@@ -82,35 +92,65 @@ def get_ftp_client():
     )
 
 
-st.title("⬇️ SIM - Download de Dados")
-st.markdown(
-    "Baixe e atualize os dados de mortalidade (SIM) do Datasus conforme os filtros "
-    "configurados na aba **Configurações**."
-)
+st.title("SIM - Download de Dados")
+st.caption("Escolha o período e os estados. Depois baixe e processe os dados.")
 st.markdown("---")
 
-# Sincroniza sessão com configuração salva (evita exibir valores desatualizados)
+# Sincroniza sessão com configuração salva
 _sync_config_from_persistence()
 
-# Parâmetros atuais (sempre refletem o que está salvo ou aplicado na sessão)
-col1, col2 = st.columns(2)
-with col1:
-    anos = st.session_state["filtro_anos"]
-    st.info(f"**Período:** {min(anos) if anos else '-'} a {max(anos) if anos else '-'}")
-with col2:
-    ufs = st.session_state["filtro_ufs"]
-    st.info(f"**Estados:** {', '.join(ufs) if ufs else '-'}")
+# Step 1 – Escolha o que baixar
+st.subheader("Step 1 – Escolha o que baixar")
+ano_atual = datetime.now().year
+anos_disponiveis = list(range(1996, ano_atual + 1))
+anos = st.session_state.get("filtro_anos") or [ano_atual - 5, ano_atual]
+ufs = st.session_state.get("filtro_ufs") or ["Paraná"]
 
-if not anos or not ufs:
-    st.warning(
-        "Configure os anos e estados na aba **Configurações** e clique em "
-        "\"Aplicar Configurações\" antes de usar esta página."
+idx_inicio = anos_disponiveis.index(min(anos)) if anos and min(anos) in anos_disponiveis else max(0, len(anos_disponiveis) - 5)
+idx_fim = anos_disponiveis.index(max(anos)) if anos and max(anos) in anos_disponiveis else len(anos_disponiveis) - 1
+
+c1, c2 = st.columns(2)
+with c1:
+    ano_inicio = st.selectbox("Ano inicial", anos_disponiveis, index=idx_inicio, key="dl_ano_inicio")
+with c2:
+    ano_fim = st.selectbox("Ano final", anos_disponiveis, index=idx_fim, key="dl_ano_fim")
+
+ufs_default = [u for u in ufs if u in ESTADOS_BR]
+if not ufs_default:
+    ufs_default = ["Paraná"]
+ufs_selecionadas = st.multiselect(
+    "Unidades da Federação (UF)",
+    options=ESTADOS_BR,
+    default=ufs_default,
+    key="dl_ufs",
+)
+
+if ano_inicio > ano_fim:
+    st.error("O ano inicial não pode ser maior que o ano final.")
+else:
+    st.info(
+        f"Você vai baixar dados de **{len(ufs_selecionadas)}** estado(s) entre **{ano_inicio}** e **{ano_fim}**."
     )
+
+if st.button("Aplicar período e estados", type="primary", key="dl_apply"):
+    from src.config.persistence import save_config
+    filtro_anos = list(range(ano_inicio, ano_fim + 1))
+    filtro_ufs = ufs_selecionadas or ["Paraná"]
+    st.session_state["filtro_anos"] = filtro_anos
+    st.session_state["filtro_ufs"] = filtro_ufs
+    save_config(filtro_anos, filtro_ufs)
+    st.success(f"Período e estados salvos: {len(filtro_ufs)} estado(s), {ano_inicio}–{ano_fim}.")
+    st.rerun()
+
+# Atualiza sessão para os blocos abaixo (caso tenha aplicado antes)
+anos = st.session_state.get("filtro_anos") or list(range(ano_inicio, ano_fim + 1))
+ufs = st.session_state.get("filtro_ufs") or ufs_selecionadas or ["Paraná"]
 
 st.markdown("---")
 
-# Seção: Verificar atualizações
-st.subheader("🔍 Verificar atualizações")
+# Step 2 – Verificar / Baixar
+
+st.subheader("Step 2 – Verificar e baixar")
 
 if st.button("Verificar se há arquivos desatualizados ou faltando", type="secondary"):
     with st.spinner("Consultando FTP do Datasus..."):
@@ -132,13 +172,14 @@ st.markdown("---")
 # Seção: Download
 st.subheader("📥 Baixar dados")
 
-col_dl1, col_dl2 = st.columns(2)
-with col_dl1:
-    baixar_atualizados = st.button("Baixar apenas desatualizados/faltando", type="primary")
-with col_dl2:
-    forcar_todos = st.button("Forçar download de todos os arquivos")
+if st.session_state.get("download_result_message"):
+    st.success(st.session_state.pop("download_result_message"))
+if st.session_state.get("download_result_error"):
+    st.error(st.session_state.pop("download_result_error"))
 
-if baixar_atualizados or forcar_todos:
+if st.session_state.get("pending_download"):
+    st.session_state.pop("pending_download")
+    forcar_todos = st.session_state.get("pending_download_force_all", False)
     try:
         ftp = get_ftp_client()
         progress_bar = st.progress(0, text="Iniciando download...")
@@ -156,9 +197,8 @@ if baixar_atualizados or forcar_todos:
         if not baixados:
             progress_bar.empty()
             status_text.empty()
-            st.info("Nenhum arquivo foi baixado. Todos já estão atualizados.")
+            st.session_state["download_result_message"] = "Nenhum arquivo foi baixado. Todos já estão atualizados."
         else:
-            # Fase 2: Silver (barra 0.2 → 0.6)
             progress_bar.progress(0.2, text="Processando camada silver...")
             status_text.caption("Carregando dados raw...")
 
@@ -177,7 +217,6 @@ if baixar_atualizados or forcar_todos:
 
             result = processor.process(progress_callback=silver_status)
 
-            # Fase 3: Gold (barra 0.6 → 1.0)
             progress_bar.progress(0.7, text="Construindo camada gold...")
             status_text.caption("Gerando view única (v_obitos_completo)...")
 
@@ -189,19 +228,38 @@ if baixar_atualizados or forcar_todos:
             progress_bar.empty()
             status_text.empty()
 
-            st.success(
+            st.session_state["download_result_message"] = (
                 f"**{len(baixados)}** arquivo(s) baixado(s). Silver: **{result['total_registros']:,}** registros. "
                 "Gold atualizada (`v_obitos_completo`)."
             )
-            for p in baixados:
-                st.caption(f"`{p}`")
+        st.session_state.pop("long_operation_in_progress", None)
+        st.session_state.pop("long_operation_page", None)
+        st.session_state.pop("pending_download_force_all", None)
+        st.rerun()
     except Exception as e:
         try:
             progress_bar.empty()
             status_text.empty()
         except NameError:
             pass
-        st.error(f"Erro: {e}")
+        st.session_state["download_result_error"] = str(e)
+        st.session_state.pop("long_operation_in_progress", None)
+        st.session_state.pop("long_operation_page", None)
+        st.session_state.pop("pending_download_force_all", None)
+        st.rerun()
+else:
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        baixar_atualizados = st.button("Baixar apenas desatualizados/faltando", type="primary")
+    with col_dl2:
+        forcar_todos = st.button("Forçar download de todos os arquivos")
+
+    if baixar_atualizados or forcar_todos:
+        st.session_state["long_operation_in_progress"] = True
+        st.session_state["long_operation_page"] = "download"
+        st.session_state["pending_download"] = True
+        st.session_state["pending_download_force_all"] = forcar_todos
+        st.rerun()
 
 # Seção: Limpar dados
 st.subheader("🗑️ Limpar dados")

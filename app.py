@@ -20,10 +20,16 @@ pg_sim_sql = st.Page("pages/SIM/SIM_sql.py", title="Editor SQL", icon="📝")
 pg_sim_forecast = st.Page("pages/SIM/SIM_forecast.py", title="Previsão do número de mortes", icon="📈")
 pg_sim_agent = st.Page("pages/SIM/SIM_agent.py", title="Consultar com IA", icon="💬")
 
-# 2. Agrupamento em "Abas" (Seções) na barra lateral
+# 2. Agrupamento em "Abas" (Seções) na barra lateral — restringe SIM durante download/construção
+_in_progress = st.session_state.get("long_operation_in_progress")
+_page = st.session_state.get("long_operation_page")
+if _in_progress and _page == "download":
+    sim_pages = [pg_sim_download]
+else:
+    sim_pages = [pg_sim_download, pg_sim_analise, pg_sim_agent, pg_sim_sql, pg_sim_forecast]
 navegacao = st.navigation({
     "Configurações": [configuration],
-    "SIM": [pg_sim_download, pg_sim_analise, pg_sim_agent, pg_sim_sql, pg_sim_forecast]
+    "SIM": sim_pages,
 })
 
 # 3. Execução

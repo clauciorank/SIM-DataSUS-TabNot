@@ -1,7 +1,7 @@
 """
 Grafo LangGraph: plan -> execute -> check_result (determinístico) -> format_response (LLM) -> respond.
 Validação determinística: confia no DuckDB (EXPLAIN + execução). LLM só gera SQL e formata resposta.
-Suporta Gemini (API Google), Groq e Ollama (local); modelo e provedor vêm da configuração.
+Suporta Gemini, Anthropic, OpenAI, Ollama e API genérica (OpenAI-compatible); modelo e provedor vêm da configuração.
 """
 import json
 import logging
@@ -58,15 +58,45 @@ def _gemini_call(api_key: str, model_id: str, system: str, user_content: str, te
     return response.text.strip()
 
 
-def _groq_call(api_key: str, model_id: str, system: str, user_content: str, temperature: float = 0.1) -> str:
-    """Chama Groq com o cliente oficial (groq package). Model ex.: llama-3.3-70b-versatile."""
+def _anthropic_call(api_key: str, model_id: str, system: str, user_content: str, temperature: float = 0.1) -> str:
+    """Chama Anthropic Claude (chat completions)."""
     api_key = (api_key or "").strip()
     if not api_key:
-        return "Erro Groq: Chave API não configurada. Em Configurações, selecione Groq e cole a chave em 'Chave API Groq'."
+        return "Erro Anthropic: Chave API não configurada. Configure em Configurações."
     try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        model = (model_id or "llama-3.3-70b-versatile").strip()
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        model = (model_id or "claude-3-5-sonnet-20241022").strip()
+        msg = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+            temperature=temperature,
+        )
+        if getattr(msg, "usage", None):
+            logger.info(
+                "anthropic tokens: input=%s output=%s",
+                getattr(msg.usage, "input_tokens", None),
+                getattr(msg.usage, "output_tokens", None),
+            )
+        text = (msg.content or [])
+        if text and hasattr(text[0], "text"):
+            return text[0].text.strip()
+        return ""
+    except Exception as e:
+        return f"Erro Anthropic: {e!s}"
+
+
+def _openai_call(api_key: str, model_id: str, system: str, user_content: str, temperature: float = 0.1) -> str:
+    """Chama OpenAI (chat completions)."""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return "Erro OpenAI: Chave API não configurada. Configure em Configurações."
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        model = (model_id or "gpt-4o-mini").strip()
         completion = client.chat.completions.create(
             model=model,
             messages=[
@@ -74,23 +104,45 @@ def _groq_call(api_key: str, model_id: str, system: str, user_content: str, temp
                 {"role": "user", "content": user_content},
             ],
             temperature=temperature,
-            max_completion_tokens=2048,
+            max_tokens=2048,
         )
         if getattr(completion, "usage", None):
             u = completion.usage
             logger.info(
-                "groq tokens: prompt=%s completion=%s total=%s",
+                "openai tokens: prompt=%s completion=%s",
                 getattr(u, "prompt_tokens", None),
                 getattr(u, "completion_tokens", None),
-                getattr(u, "total_tokens", None),
             )
         choice = (completion.choices or [None])[0]
         if not choice or not getattr(choice, "message", None):
             return ""
-        content = getattr(choice.message, "content", None) or ""
-        return content.strip()
+        return (getattr(choice.message, "content", None) or "").strip()
     except Exception as e:
-        return f"Erro Groq: {e!s}"
+        return f"Erro OpenAI: {e!s}"
+
+
+def _generic_call(base_url: str, model_id: str, api_key: str, system: str, user_content: str, temperature: float = 0.1) -> str:
+    """Chama API compatível com OpenAI (ex.: LM Studio, Together, Groq)."""
+    base = (base_url or "https://api.openai.com/v1").rstrip("/")
+    model = (model_id or "gpt-4o").strip()
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=base, api_key=(api_key or "dummy").strip())
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=temperature,
+            max_tokens=2048,
+        )
+        choice = (completion.choices or [None])[0]
+        if not choice or not getattr(choice, "message", None):
+            return ""
+        return (getattr(choice.message, "content", None) or "").strip()
+    except Exception as e:
+        return f"Erro API genérica: {e!s}"
 
 
 def _ollama_call(base_url: str, model_id: str, system: str, user_content: str, temperature: float = 0.1) -> str:
@@ -125,27 +177,43 @@ def _ollama_call(base_url: str, model_id: str, system: str, user_content: str, t
 
 
 def _llm_call(llm_config: Dict[str, Any], system: str, user_content: str, temperature: float = 0.1) -> str:
-    """Despacha para Gemini, Groq ou Ollama conforme llm_config (provider, model, api_key, ollama_base_url)."""
+    """Despacha para Gemini, Anthropic, OpenAI, generic ou Ollama conforme llm_config."""
     if not llm_config:
         return ""
     provider = (llm_config.get("provider") or "gemini").strip().lower()
     model = (llm_config.get("model") or "").strip()
-    model_display = model or ({"gemini": "default", "groq": "llama-3.3-70b-versatile", "ollama": "llama3.2"}.get(provider, ""))
+    model_display = model or "default"
     t0 = time.perf_counter()
     out = ""
     if provider == "ollama":
         base = (llm_config.get("ollama_base_url") or "http://localhost:11434").strip()
-        out = _ollama_call(base, model, system, user_content, temperature)
-    elif provider == "groq":
+        out = _ollama_call(base, model or "llama3.2", system, user_content, temperature)
+    elif provider == "anthropic":
         api_key = (llm_config.get("api_key") or "").strip()
         if not api_key:
-            return ""
-        out = _groq_call(api_key, model or "llama-3.3-70b-versatile", system, user_content, temperature)
+            return "Erro: Chave API Anthropic não configurada."
+        out = _anthropic_call(api_key, model or "claude-3-5-sonnet-20241022", system, user_content, temperature)
+    elif provider == "openai":
+        api_key = (llm_config.get("api_key") or "").strip()
+        if not api_key:
+            return "Erro: Chave API OpenAI não configurada."
+        out = _openai_call(api_key, model or "gpt-4o-mini", system, user_content, temperature)
+    elif provider == "generic":
+        base_url = (llm_config.get("generic_base_url") or "https://api.openai.com/v1").strip()
+        api_key = (llm_config.get("api_key") or "").strip()
+        out = _generic_call(
+            base_url,
+            model or llm_config.get("generic_model") or "gpt-4o",
+            api_key,
+            system,
+            user_content,
+            temperature,
+        )
     else:
         api_key = (llm_config.get("api_key") or "").strip()
         if not api_key:
-            return ""
-        out = _gemini_call(api_key, model, system, user_content, temperature)
+            return "Erro: Chave API Gemini não configurada."
+        out = _gemini_call(api_key, model or "gemini-3.1-flash-lite-preview", system, user_content, temperature)
     elapsed = time.perf_counter() - t0
     logger.info("llm_call %s %s %.1fs -> %d chars", provider, model_display, elapsed, len(out or ""))
     logger.debug("llm_call user_content (first 300 chars): %s", (user_content or "")[:300])
@@ -165,7 +233,7 @@ def _safe_sql(sql: str) -> bool:
 
 def _extract_sql_from_plan_output(out: str) -> str:
     """
-    Extrai a query SQL da resposta do LLM (plan). Compatível com Gemini, Groq/Llama e outros.
+    Extrai a query SQL da resposta do LLM (plan). Compatível com Gemini, Anthropic, OpenAI, Ollama e outros.
     Aceita: JSON puro, blocos ```json/```sql, ou texto com objeto {"sql": "..."}.
     """
     if not (out or "").strip():
@@ -286,7 +354,7 @@ def _plan_node(state: AgentState, llm_config: Dict[str, Any]) -> AgentState:
     out = _llm_call(llm_config, full_system, user_msg, temperature=0.1)
     out_stripped = (out or "").strip()
     # Erro fatal da API (403, rede, etc.) — não repete tentativas
-    if out_stripped.startswith(("Erro Groq:", "Erro Ollama:", "Erro ao conectar")):
+    if out_stripped.startswith(("Erro Anthropic:", "Erro OpenAI:", "Erro API genérica:", "Erro Ollama:", "Erro ao conectar", "Erro:")):
         logger.warning("plan node erro fatal da API: %s", out_stripped[:200])
         return {"sql_planejada": "", "plan_attempts": plan_attempts, "llm_error": out_stripped}
     sql = _extract_sql_from_plan_output(out or "")
@@ -540,7 +608,7 @@ def _give_up_node(state: AgentState) -> AgentState:
         logger.warning("give_up: erro da API -> %s", llm_error[:150])
         msg = llm_error
         if "403" in llm_error:
-            msg += " Verifique a chave API em Configurações (Groq: https://console.groq.com/keys) e se o modelo está disponível."
+            msg += " Verifique a chave API em Configurações e se o modelo está disponível."
         return {"resposta_final": msg}
     logger.warning("give_up: esgotadas tentativas (plan_attempts=%s)", state.get("plan_attempts", 0))
     return {"resposta_final": MSG_NAO_CONSEGUIU_CONSULTA}
@@ -595,7 +663,7 @@ def _run_agent_fallback(pergunta: str, llm_config: Dict[str, Any]) -> dict:
         if state.get("llm_error"):
             state["resposta_final"] = state["llm_error"]
             if "403" in state["llm_error"]:
-                state["resposta_final"] += " Verifique a chave API em Configurações (Groq: https://console.groq.com/keys) e se o modelo está disponível."
+                state["resposta_final"] += " Verifique a chave API em Configurações e se o modelo está disponível."
             break
         state = {**state, **_execute_node(state)}
         if not state.get("sql_validation_ok"):
@@ -624,7 +692,7 @@ def _run_agent_fallback(pergunta: str, llm_config: Dict[str, Any]) -> dict:
 def run_agent(pergunta: str, llm_config: Dict[str, Any]) -> dict:
     """
     Executa o grafo e retorna dict com resposta_final, sql_planejada, resultado_execucao.
-    llm_config: dict com provider ('gemini'|'groq'|'ollama'), model, api_key (Gemini/Groq), ollama_base_url (Ollama).
+    llm_config: dict com provider (gemini|anthropic|openai|generic|ollama), model, api_key, ollama_base_url, generic_base_url, generic_model.
     Perguntas fora do tema (óbitos/SIM) são rejeitadas pelo guardrail sem consumir o agente.
     """
     provider = (llm_config or {}).get("provider") or "gemini"
