@@ -153,6 +153,12 @@ def build_gold_catalog(
     lcod_path = str((silver_path / "legenda_cid10_causa.parquet").resolve()).replace("\\", "/")
     d_path = str((silver_path / "cid10_depara.parquet").resolve()).replace("\\", "/").replace("'", "''")
 
+    # Código município: normalizar para 6 dígitos (IBGE). Registros antigos podem ter 7 (sobra 1) ou 5; padronizar para 6.
+    _cod = "TRIM(COALESCE(CAST(o.CODMUNRES AS VARCHAR), ''))"
+    cod_mun_res_norm = f"LPAD(SUBSTRING({_cod}, 1, 6), 6, '0')"
+    _cod_ocor = "TRIM(COALESCE(CAST(o.CODMUNOCOR AS VARCHAR), ''))"
+    cod_mun_ocor_norm = f"LPAD(SUBSTRING({_cod_ocor}, 1, 6), 6, '0')"
+
     # Normalização do código CID-10 para join: com ponto quando 4 caracteres (ex.: A900 -> A90.0)
     causa_norm = (
         "CASE WHEN INSTR(TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')), '.') > 0 "
@@ -210,9 +216,9 @@ def build_gold_catalog(
             END"""
 
     con.execute(f"""
-        CREATE OR REPLACE VIEW v_obitos_completo AS
+        CREATE OR REPLACE VIEW v_obitos_completo_build AS
         SELECT
-            b.origem, b.tipo_obito, b.tipo_obito_desc, b.dt_obito, b.ano, b.hora_obito, b.natural,
+            b.origem, b.tipo_obito, b.tipo_obito_desc, b.dt_obito, b.dt_obito_mes, b.ano, b.hora_obito, b.natural,
             b.cod_mun_nascimento, b.dt_nascimento, b.idade,
             CASE WHEN SUBSTR(b.ida, 1, 1) = '4' THEN TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT)
                  WHEN SUBSTR(b.ida, 1, 1) = '5' THEN 100 + COALESCE(TRY_CAST(SUBSTR(b.ida, 2, 2) AS INT), 0)
@@ -230,6 +236,7 @@ def build_gold_catalog(
                 o.TIPOBITO AS tipo_obito,
                 lt.descricao AS tipo_obito_desc,
                 o.dt_obito,
+                date_trunc('month', o.dt_obito)::DATE AS dt_obito_mes,
                 year(o.dt_obito) AS ano,
                 o.HORAOBITO AS hora_obito,
                 o."NATURAL" AS natural,
@@ -246,13 +253,13 @@ def build_gold_catalog(
                 o.ESC AS esc,
                 o.ESC2010 AS esc_2010,
                 o.OCUP AS ocup,
-                o.CODMUNRES AS cod_mun_residencia,
+                {cod_mun_res_norm} AS cod_mun_residencia,
                 m_res.geocodigo AS geocodigo_residencia,
                 m_res.municipio AS municipio_residencia,
                 m_res.uf AS uf_residencia,
                 o.LOCOCOR AS loc_ocorrencia,
                 loc.descricao AS local_ocorrencia_desc,
-                o.CODMUNOCOR AS cod_mun_ocorrencia,
+                {cod_mun_ocor_norm} AS cod_mun_ocorrencia,
                 m_ocor.municipio AS municipio_ocorrencia,
                 m_ocor.uf AS uf_ocorrencia,
                 TRIM(COALESCE(CAST(o.CAUSABAS AS VARCHAR), '')) AS causa_basica,
@@ -265,8 +272,8 @@ def build_gold_catalog(
                 o.PARTO AS parto,
                 o.CONTADOR AS contador
             FROM read_parquet('{o}') o
-            LEFT JOIN read_parquet('{m}') m_res ON m_res.codigo = TRIM(CAST(o.CODMUNRES AS VARCHAR))
-            LEFT JOIN read_parquet('{m}') m_ocor ON m_ocor.codigo = TRIM(CAST(o.CODMUNOCOR AS VARCHAR))
+            LEFT JOIN read_parquet('{m}') m_res ON m_res.codigo = ({cod_mun_res_norm})
+            LEFT JOIN read_parquet('{m}') m_ocor ON m_ocor.codigo = ({cod_mun_ocor_norm})
             LEFT JOIN read_parquet('{ls_path}') ls ON ls.codigo = CAST(COALESCE(TRY_CAST(o.SEXO AS INT), 0) AS VARCHAR)
             LEFT JOIN read_parquet('{lr_path}') lr ON lr.codigo = COALESCE(CAST(o.RACACOR AS VARCHAR), '9')
             LEFT JOIN read_parquet('{lc_path}') lc ON lc.codigo = COALESCE(CAST(o.CIRCOBITO AS VARCHAR), '0')
@@ -278,6 +285,41 @@ def build_gold_catalog(
             {cid_join}
         ) b
     """)
+
+    # Materializar em tabela com o mesmo nome usado pelos serviços (v_obitos_completo) e indexar
+    con.execute("DROP TABLE IF EXISTS v_obitos_completo")
+    con.execute("DROP VIEW IF EXISTS v_obitos_completo")
+    con.execute("CREATE TABLE v_obitos_completo AS SELECT * FROM v_obitos_completo_build")
+    con.execute("DROP VIEW v_obitos_completo_build")
+
+    # Tabela de bounds (min/max data e ano) para filtros sem varrer a base
+    con.execute("""
+        CREATE OR REPLACE TABLE obitos_bounds AS
+        SELECT min(dt_obito) AS min_dt_obito, max(dt_obito) AS max_dt_obito,
+               min(ano) AS min_ano, max(ano) AS max_ano
+        FROM v_obitos_completo
+    """)
+
+    # Tabelas de opções para filtros (capítulos e causas) — preenchidas no build, UI não varre a base
+    con.execute("""
+        CREATE OR REPLACE TABLE obitos_opcoes_capitulos AS
+        SELECT DISTINCT causa_cid10_capitulo_desc
+        FROM v_obitos_completo
+        WHERE causa_cid10_capitulo_desc IS NOT NULL AND TRIM(COALESCE(CAST(causa_cid10_capitulo_desc AS VARCHAR), '')) != ''
+        ORDER BY 1
+    """)
+    con.execute("""
+        CREATE OR REPLACE TABLE obitos_opcoes_causas AS
+        SELECT DISTINCT causa_basica, causa_cid10_desc, causa_cid10_capitulo_desc
+        FROM v_obitos_completo
+        WHERE causa_basica IS NOT NULL AND TRIM(CAST(causa_basica AS VARCHAR)) != ''
+        ORDER BY causa_basica
+    """)
+
+    # Índices nas colunas usadas nos filtros (dt_obito_mes para agregação mensal; sem municipio/causa_basica)
+    for col in ("dt_obito_mes", "ano", "uf_residencia", "sexo_desc", "faixa_etaria", "causa_cid10_capitulo_desc"):
+        con.execute(f"CREATE INDEX IF NOT EXISTS idx_obitos_{col} ON v_obitos_completo({col})")
+
     con.execute("DROP VIEW IF EXISTS v_obitos_analise")
 
     con.close()

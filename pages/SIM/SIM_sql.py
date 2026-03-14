@@ -16,6 +16,7 @@ DESCRICOES_GOLD = {
         "tipo_obito": "Código tipo óbito (1 Fetal, 2 Não fetal)",
         "tipo_obito_desc": "Descrição do tipo de óbito",
         "dt_obito": "Data do óbito",
+        "dt_obito_mes": "Mês do óbito (1º dia do mês)",
         "ano": "Ano do óbito (extraído da data)",
         "hora_obito": "Hora do óbito",
         "natural": "Indicador de óbito natural",
@@ -210,6 +211,8 @@ with st.expander("📋 Dicionário de dados (colunas disponíveis)", expanded=Tr
 
         con = duckdb.connect(str(DUCKDB_PATH), read_only=True)
         schema = get_schema(con)
+        if USE_GOLD:
+            schema = [(t, c, d) for t, c, d in schema if t == "v_obitos_completo"]
         descricoes = DESCRICOES_GOLD if USE_GOLD else DESCRICOES_SILVER
         df_dict = build_data_dictionary(schema, descricoes)
         con.close()

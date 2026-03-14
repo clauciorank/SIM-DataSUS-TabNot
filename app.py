@@ -16,8 +16,8 @@ configuration = st.Page("pages/configuration.py", title="Configurações", icon=
 
 pg_sim_download = st.Page("pages/SIM/SIM_download.py", title="Download de Dados", icon="⬇️")
 pg_sim_analise = st.Page("pages/SIM/SIM_analise.py", title="Análise Exploratória", icon="📊")
-pg_sim_sql = st.Page("pages/SIM/SIM_semantic.py", title="Editor SQL", icon="📝")
-pg_sim_forecast = st.Page("pages/SIM/SIM_forecast.py", title="Dashboard Mortalidade", icon="📈")
+pg_sim_sql = st.Page("pages/SIM/SIM_sql.py", title="Editor SQL", icon="📝")
+pg_sim_forecast = st.Page("pages/SIM/SIM_forecast.py", title="Previsão do número de mortes", icon="📈")
 pg_sim_agent = st.Page("pages/SIM/SIM_agent.py", title="Consultar com IA", icon="💬")
 
 # 2. Agrupamento em "Abas" (Seções) na barra lateral
@@ -27,5 +27,5 @@ navegacao = st.navigation({
 })
 
 # 3. Execução
-st.set_page_config(page_title="Sistema de Dados Saúde", layout="wide")
+st.set_page_config(page_title="SIM DataSUS TabNot", layout="wide", page_icon = '⚕️')
 navegacao.run()

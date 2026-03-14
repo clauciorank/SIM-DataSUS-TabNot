@@ -65,7 +65,7 @@ def _warm_schema(con) -> None:
             "Você gera apenas uma query SQL DuckDB. Tabela disponível (read-only):\n\n"
             "v_obitos_completo - view principal (use esta). Colunas exatamente como na base:\n"
             f"{cols_text}\n\n"
-            "Regras: dt_obito é a data do óbito; ano já existe. Para MÊS use month(dt_obito) ou strftime(dt_obito, '%m'); "
+            "Regras: dt_obito é a data do óbito; dt_obito_mes é o primeiro dia do mês (use para agregações mensais: GROUP BY dt_obito_mes ou strftime(dt_obito_mes, '%Y-%m')); ano já existe. "
             "NUNCA use '%w' (dia da semana). Para filtro por município use EXATAMENTE os valores do contexto. "
             "Para causa use EXATAMENTE os códigos ou causa_cid10_capitulo_desc do contexto; não use ILIKE em texto livre nem invente códigos. "
             "Apenas SELECT (ou WITH ... SELECT). Retorne JSON com chave \"sql\"."
