@@ -40,29 +40,6 @@ def _fallback_schema_views() -> str:
     )
 
 
-def reset_schema_cache() -> None:
-    """Limpa todos os caches de metadata (schema, rich_schema, municípios) e o flag de warm."""
-    global _SCHEMA_FROM_VIEW_CACHE
-    _SCHEMA_FROM_VIEW_CACHE = None
-    try:
-        from src.agent import schema_enricher
-        schema_enricher._rich_schema_cache = None
-    except Exception:
-        pass
-    try:
-        from src.agent import municipality
-        municipality._municipios_cache = None
-        municipality._municipios_uf_cache = None
-    except Exception:
-        pass
-    try:
-        from src.agent.db_cache import reset_warm_done
-        reset_warm_done()
-    except Exception:
-        pass
-
-
-
 PLAN_SYSTEM = (
     "Você é um assistente que gera apenas uma instrução SQL SELECT para responder à pergunta do usuário "
     "com base nos dados oficiais de óbitos (SIM/DuckDB). Use somente as tabelas e colunas descritas no schema. "

@@ -204,10 +204,3 @@ def _warm_municipalities(con) -> None:
             mun_mod._municipios_cache = []
         if mun_mod._municipios_uf_cache is None:
             mun_mod._municipios_uf_cache = []
-
-
-def reset_warm_done() -> None:
-    """Reseta o flag de warm (para testes ou após recriar a gold)."""
-    global _warm_done
-    with _warm_lock:
-        _warm_done = False
