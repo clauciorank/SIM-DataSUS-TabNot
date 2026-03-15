@@ -48,8 +48,6 @@ Por enquanto o sistema deve ser executado localmente (pq máquina em nuvem e tok
 
 - **Previsão de óbitos** — Forecasting com pipeline automático que testa ARIMA, ETS, XGBoost e média móvel, selecionando o melhor modelo.
 
-![Texto Alternativo](docs/vids/Analise exploratoria.mp4)
-
 ---
 
 ## Início rápido
