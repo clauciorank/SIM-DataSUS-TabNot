@@ -31,7 +31,7 @@ navegacao = st.navigation({
     "SIM": sim_pages,
 })
 
-# 3. Rodapé da barra lateral (ícones GitHub e LinkedIn)
+# 3. Rodapé da barra lateral (ícone GitHub)
 from src.utils.sidebar_footer import render_sidebar_footer
 render_sidebar_footer()
 

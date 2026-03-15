@@ -58,6 +58,7 @@ desktop.ini
 htmlcov/
 .tox/
 .mypy_cache/
+tests/reports/
 
 # Jupyter
 .ipynb_checkpoints/

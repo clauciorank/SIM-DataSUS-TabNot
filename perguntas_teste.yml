@@ -1,4 +1,0 @@
-perguntas:
-  pregunta1:
-    -question: qual a causa de mortalidade mais frequente para o capitulo de doenças cardiovasculares da cid. considere individuos de menos de 50 anos
-    -answer: SELECT causa_cid10_desc, COUNT(*) AS total FROM v_obitos_completo WHERE causa_cid10_capitulo_desc = 'Capítulo IX - Doenças do aparelho circulatório' AND idade_anos < 50 GROUP BY causa_cid10_desc ORDER BY total DESC LIMIT 1

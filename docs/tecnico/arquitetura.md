@@ -29,7 +29,6 @@ flowchart TB
         AgentUI[Consultar com IA]
         SQL[Editor SQL]
         Forecast[Previsão de Óbitos]
-        Docs[Documentação]
     end
 
     subgraph data [Camadas de Dados]
@@ -66,7 +65,6 @@ DatasusBrasileiroApp/
 ├── app.py                    # Ponto de entrada Streamlit
 ├── pages/
 │   ├── configuration.py      # Configurações
-│   ├── documentation.py      # Documentação (renderiza docs/)
 │   └── SIM/
 │       ├── SIM_download.py   # Download e processamento
 │       ├── SIM_analise.py    # Análise exploratória
@@ -97,6 +95,5 @@ O `app.py` usa `st.navigation` para agrupar as páginas em seções:
 
 - **Configurações** — `configuration.py`
 - **SIM** — Download, Análise, Consultar com IA, Editor SQL, Previsão
-- **Documentação** — `documentation.py`
 
-Durante operações longas (download/processamento), a navegação restringe as abas do SIM para evitar acessos a dados parciais.
+A documentação completa fica no repositório (pasta `docs/`). Durante operações longas (download/processamento), a navegação restringe as abas do SIM para evitar acessos a dados parciais.
