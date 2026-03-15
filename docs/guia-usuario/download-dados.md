@@ -10,7 +10,7 @@ A aba **Download de Dados** obtém os arquivos do SIM (Sistema de Informações 
 - Esses valores são usados para buscar os arquivos do FTP.
 - As preferências ficam salvas em `data/config.db` (SQLite, criado automaticamente).
 
-![Filtros de Download](../images/screenshots/filtros_analise_exploratoria.png)
+![Filtros de Download](../images/screenshots/filtros_download.png)
 
 ---
 
@@ -21,6 +21,8 @@ O fluxo de dados segue três etapas:
 1. **Baixar do FTP** — Arquivos Parquet são baixados por UF e ano para a pasta `data/SIM/raw/`.
 2. **Processar silver** — Dados tratados (óbitos, legendas, municípios) são gravados em `data/SIM/silver/`.
 3. **Construir gold** — DuckDB é criado com a view analítica `v_obitos_completo` em `data/SIM/gold/`.
+
+Os passos 1,2 e 3 são executados juntos, importante não mudar de aba no sistema.
 
 ![Download](../images/screenshots/downloads.png)
 

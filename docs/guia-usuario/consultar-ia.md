@@ -36,6 +36,10 @@ Cada resposta é **auditável**: a consulta SQL gerada é exibida e pode ser cop
 - Use "considere todos os estados" ou "todo o Brasil" quando quiser escopo nacional.
 - Perguntas fora do tema (que não sejam sobre óbitos/mortalidade) são rejeitadas automaticamente pelo guardrail.
 
+## Observação
+
+O modelo de IA utilizado impacta diretamente na qualidade das respostas. Nos testes iniciais os modelos do Gemini acima do Gemini Flash se mostraram satisfatórios nas respostas
+
 ---
 
 Próximo passo: [Editor SQL](editor-sql.md)
