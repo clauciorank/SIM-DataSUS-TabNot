@@ -20,7 +20,7 @@ Para usar a aba **Consultar com IA**, configure um provedor de modelo de linguag
 - Escolha o modelo na lista — para o Gemini, a lista é carregada dinamicamente se houver chave válida.
 - Após salvar, a chave não é exibida novamente (apenas um indicador de que está configurada).
 
-![Configuração do modelo](../images/scressnshots/config.png)
+![Configuração do modelo](../images/screenshots/config.png)
 ---
 
 Próximo passo: [Download de Dados](download-dados.md)
