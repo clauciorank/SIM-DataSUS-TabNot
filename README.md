@@ -86,7 +86,6 @@ streamlit run app.py
 
 Na barra lateral, abra **Configurações** para definir:
 
-- **Período e UFs** para download dos dados.
 - **Provedor de IA** (Gemini, Anthropic, OpenAI, Ollama) e chave de API para a consulta com IA.
 
 
@@ -97,9 +96,10 @@ Na barra lateral, abra **Configurações** para definir:
 
 Em **SIM → Download de Dados**:
 
-1. Clique em **Baixar** para obter os dados do FTP.
-2. Rode o **processamento silver** e depois **construa a gold**.
-3. Pronto — as demais abas ficam habilitadas.
+1. Selecione **Período e UFs** para download dos dados.
+2. Clique em **Baixar** para obter os dados do FTP.
+3. Rode o **processamento silver** e depois **construa a gold**.
+4. Pronto — as demais abas ficam habilitadas.
 
 
 
