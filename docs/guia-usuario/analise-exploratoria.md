@@ -18,7 +18,7 @@ A aba **Análise Exploratória** permite filtrar e visualizar os dados de óbito
 
 Aplique os filtros e os gráficos serão atualizados automaticamente.
 
-<!-- TODO: Screenshot dos filtros da Análise Exploratória -->
+![Filtros da Análise Exploratória](../images/screenshots/filtros_analise_exploratoria.png)
 
 ---
 
@@ -26,19 +26,19 @@ Aplique os filtros e os gráficos serão atualizados automaticamente.
 
 - **Série temporal** — Total de óbitos por período (anual ou mensal).
 
-<!-- TODO: Screenshot do gráfico de série temporal -->
+![Série temporal](../images/screenshots/serie_temporal.png)
 
 - **Óbitos por causa** — Ranking das principais causas de morte no período filtrado.
 
-<!-- TODO: Screenshot do gráfico de causas -->
+![Óbitos Causa](../images/screenshots/obitos_causa.png)
 
 - **Óbitos por território** — Totais por estado (UF) ou por município, em gráfico de barras.
 
-<!-- TODO: Screenshot do gráfico por território -->
+![Óbitos Território](../images/screenshots/obitos_territorio.png)
 
 - **Pirâmide etária** — Distribuição por sexo e faixa etária.
 
-<!-- TODO: Screenshot da pirâmide etária -->
+![Pirâmide Etária](../images/screenshots/piramide_etaria.png)
 
 Todos os gráficos são interativos (Plotly) — passe o mouse para ver detalhes, clique na legenda para filtrar séries.
 

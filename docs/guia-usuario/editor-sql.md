@@ -10,7 +10,7 @@ A aba **Editor SQL** permite executar consultas SQL diretamente na base DuckDB d
 2. Escolha uma **consulta pronta** na lista de sugestões, ou escreva a sua no editor de texto.
 3. Clique em **Executar** para ver os resultados em tabela.
 
-<!-- TODO: Screenshot do Editor SQL -->
+![Editor SQL](../images/screenshots/editor_sql.png)
 
 ---
 

@@ -4,16 +4,6 @@ A página de **Configurações** centraliza as preferências do aplicativo.
 
 ---
 
-## Período e UFs
-
-- Defina o intervalo de **anos** e as **UFs** que deseja baixar.
-- Esses valores são usados na aba **Download de Dados** para buscar os arquivos do FTP.
-- As preferências ficam salvas em `data/config.db` (SQLite, criado automaticamente).
-
-<!-- TODO: Screenshot dos filtros de período e UFs -->
-
----
-
 ## Provedor de IA
 
 Para usar a aba **Consultar com IA**, configure um provedor de modelo de linguagem:
@@ -30,8 +20,7 @@ Para usar a aba **Consultar com IA**, configure um provedor de modelo de linguag
 - Escolha o modelo na lista — para o Gemini, a lista é carregada dinamicamente se houver chave válida.
 - Após salvar, a chave não é exibida novamente (apenas um indicador de que está configurada).
 
-<!-- TODO: Screenshot da configuração de provedor e modelo -->
-
+![Configuração do modelo](../images/scressnshots/config.png)
 ---
 
 Próximo passo: [Download de Dados](download-dados.md)

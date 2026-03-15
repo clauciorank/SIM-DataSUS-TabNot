@@ -18,7 +18,7 @@ A aba **Previsão de óbitos (forecasting)** projeta o número de mortes para o 
 4. **Defina o horizonte**: número de passos a prever (ex.: 2 anos ou 16 meses).
 5. Clique em **Executar previsão**.
 
-<!-- TODO: Screenshot dos filtros e configuração de previsão -->
+![Filtros Forecast](../images/screenshots/filtros_forecast.png)
 
 ---
 
@@ -30,7 +30,7 @@ O gráfico exibe:
 - **Previsão** — Projeção pontual do modelo selecionado.
 - **Intervalos de confiança** — Faixas de 80% e 95%, indicando a incerteza da projeção.
 
-<!-- TODO: Screenshot do gráfico de previsão com intervalos -->
+![Resultados Forecast](../images/screenshots/forecast_result_1.png)
 
 Abaixo do gráfico, uma seção mostra os **modelos testados e suas métricas**, para que você possa entender qual modelo foi escolhido e por quê.
 
