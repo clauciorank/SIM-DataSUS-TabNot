@@ -4,7 +4,7 @@ Rodapé da barra lateral: ícone oficial do GitHub, clicável, sem texto.
 import streamlit as st
 
 # TODO: Inserir URL do repositório GitHub (ex.: https://github.com/seu-usuario/DatasusBrasileiroApp)
-GITHUB_URL = "https://github.com/seu-usuario/DatasusBrasileiroApp"
+GITHUB_URL = "https://github.com/clauciorank/SIM-DataSUS-TabNot"
 GITHUB_ICON = "https://cdn.simpleicons.org/github"
 
 
