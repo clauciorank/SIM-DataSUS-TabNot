@@ -468,13 +468,21 @@ UF_SIGLAS = frozenset(
 )
 
 
+# Contexto explícito quando o usuário pede "todos os estados" / "todo o Brasil"
+NATIONWIDE_PLACE_CONTEXT = (
+    "Escopo nacional: considerar TODOS os estados do Brasil. "
+    "NÃO filtrar por uf_residencia nem por municipio_residencia; a query deve abranger todo o país."
+)
+
+
 def _extract_and_resolve_place_node(state: AgentState) -> AgentState:
     """
     Extrai menção a lugar por heurística (sem IA, economiza quota) e resolve com resolve_place
     para nome canônico do município (evita confundir estado com município).
     Se a frase for sigla de UF, usa uf_residencia diretamente.
+    Se a pergunta pedir "todos os estados" / "todo o Brasil", injeta contexto explícito de escopo nacional.
     """
-    from src.agent.municipality import extract_place_heuristic, resolve_place
+    from src.agent.municipality import extract_place_heuristic, resolve_place, is_nationwide_scope
 
     pergunta = state.get("pergunta", "")
     place_phrase = extract_place_heuristic(pergunta)
@@ -500,8 +508,13 @@ def _extract_and_resolve_place_node(state: AgentState) -> AgentState:
             )
             logger.info("extract_place municipios resolvidos: %s", resolvidos[:5] if len(resolvidos) > 5 else resolvidos)
             return {"place_phrase": place_phrase, "municipios_contexto": municipios_contexto}
+
+    # Sem lugar específico: se a pergunta pedir "todos os estados" / "todo o Brasil", passar contexto explícito
+    if is_nationwide_scope(pergunta):
+        logger.info("extract_place: escopo nacional detectado (todos os estados / todo o Brasil)")
+        return {"place_phrase": "", "municipios_contexto": NATIONWIDE_PLACE_CONTEXT}
+
     # Sem menção explícita a lugar (em/na/no + nome): NÃO inferir município por fuzzy em palavras soltas
-    # (evita "cardiovasculares"/"mensal" etc. baterem em Japaratinga ou outro município por acaso)
     logger.info("extract_place: sem lugar explícito, municipios_contexto vazio")
     return {"place_phrase": place_phrase or "", "municipios_contexto": ""}
 

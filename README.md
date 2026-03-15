@@ -1,134 +1,171 @@
-# Sistema de Dados Saúde (Datasus)
+<p align="center">
+  <h1 align="center">SIM DataSUS</h1>
+  <p align="center">
+    Análise de mortalidade do Brasil com IA, forecasting e gráficos interativos
+  </p>
+</p>
 
-Aplicação em Streamlit para download, processamento e análise de dados do **SIM** (Sistema de Informações sobre Mortalidade) do Datasus.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?logo=streamlit&logoColor=white" alt="Streamlit">
+  <img src="https://img.shields.io/badge/DuckDB-Anal%C3%ADtico-FFC107?logo=duckdb&logoColor=black" alt="DuckDB">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white" alt="Docker">
+</p>
 
-## O que o sistema faz
+---
 
-- **Download de dados**: obtém arquivos SIM (óbitos) do FTP do Datasus por UF e ano, em formato Parquet.
-- **Processamento**: pipeline em camadas (raw → silver → gold) com DuckDB; view analítica com faixa etária, legendas (sexo, raça/cor, CID-10, etc.) e join com municípios.
-- **Análise exploratória**: filtros por período, sexo, faixa etária, UF, município e causa; série temporal, óbitos por causa, por território (estados/municípios), pirâmide etária.
-- **Perguntas em linguagem natural (Text-to-SQL)**: agente de IA que interpreta perguntas sobre óbitos, gera SQL e devolve a resposta; suporta Gemini, Groq e Ollama.
-- **Editor SQL**: consultas diretas à view de óbitos.
-- **Dashboard**: visão de mortalidade (forecast).
-- **Configurações**: período e UFs padrão para download, persistidos em SQLite (`data/config.db`).
+<!-- TODO: Banner/GIF principal mostrando o app em ação -->
 
-## Requisitos
+## Sobre o projeto
 
-- Python 3.10+
-- Dependências listadas em `requirements.txt`
+O **SIM DataSUS** é uma aplicação completa para download, processamento e análise dos dados de mortalidade do Brasil (SIM — Sistema de Informações sobre Mortalidade). Com ela você pode explorar óbitos por período, causa, local e perfil demográfico, fazer perguntas em linguagem natural usando IA, executar consultas SQL diretamente e gerar previsões de mortalidade com um pipeline estatístico automatizado.
 
-## Instalação
+---
+
+## Funcionalidades
+
+- **Download e processamento de dados** — Obtém dados diretamente do FTP do Datasus e processa em camadas (raw → silver → gold).
+
+<!-- TODO: Screenshot da tela Download de Dados -->
+
+- **Análise exploratória** — Filtros por período, sexo, faixa etária, UF, município e causa; gráficos de série temporal, causas, território e pirâmide etária.
+
+<!-- TODO: Screenshot da Análise Exploratória -->
+
+- **Consulta com IA** — Perguntas em português sobre os dados; o agente gera SQL automaticamente e devolve respostas auditáveis.
+
+<!-- TODO: GIF demonstração da Consulta com IA -->
+
+- **Editor SQL** — Consultas diretas à view analítica `v_obitos_completo` (DuckDB).
+
+<!-- TODO: Screenshot do Editor SQL -->
+
+- **Previsão de óbitos** — Forecasting com pipeline automático que testa ARIMA, ETS, XGBoost e média móvel, selecionando o melhor modelo.
+
+<!-- TODO: Screenshot da Previsão de Óbitos -->
+
+---
+
+## Início rápido
+
+### Com Docker (recomendado)
 
 ```bash
-# Clone o repositório (ou use o diretório do projeto)
+git clone https://github.com/seu-usuario/DatasusBrasileiroApp.git
 cd DatasusBrasileiroApp
-
-# Crie e ative um ambiente virtual
-python3 -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-# ou: .venv\Scripts\activate   # Windows
-
-# Instale as dependências
-pip install -r requirements.txt
+docker compose up
 ```
 
-## Como executar
+Acesse **http://localhost:8501**. Os dados ficam persistidos na pasta `data/`.
+
+### Instalação local
 
 ```bash
+git clone https://github.com/seu-usuario/DatasusBrasileiroApp.git
+cd DatasusBrasileiroApp
+
+python3 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\activate    # Windows
+
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-O navegador abrirá em `http://localhost:8501`. Use a barra lateral para acessar:
+---
 
-- **Configurações** – anos e UFs padrão para download; chaves de API (Gemini/Groq) e modelo para o agente Text-to-SQL.
-- **SIM**
-  - **Download de Dados** – baixar arquivos do FTP, processar (raw → silver) e construir a camada gold.
-  - **Análise Exploratória** – gráficos e filtros sobre óbitos (requer gold construída).
-  - **Consulta em linguagem natural** – perguntas em texto (ex.: “Quantos óbitos por dengue em 2023?”); o agente gera a SQL e mostra a resposta.
-  - **Editor SQL** – consultas diretas à view de óbitos.
-  - **Dashboard Mortalidade** – indicadores de mortalidade.
+## Guia de uso
 
-## Estrutura de dados
+### 1. Configurações
 
-As pastas são criadas automaticamente quando necessário:
+Na barra lateral, abra **Configurações** para definir:
+- **Período e UFs** para download dos dados.
+- **Provedor de IA** (Gemini, Anthropic, OpenAI, Ollama) e chave de API para a consulta com IA.
 
-| Camada   | Caminho           | Conteúdo |
-|----------|-------------------|----------|
-| Raw      | `data/SIM/raw/`   | Parquets baixados do FTP (por UF/ano). |
-| Silver   | `data/SIM/silver/`| Parquets tratados (óbitos, legendas, municípios). |
-| Gold     | `data/SIM/gold/`  | DuckDB com view `v_obitos_completo` (idade, idade_anos, faixa_etaria, causas, etc.). |
+<!-- TODO: Screenshot da tela Configurações -->
 
-- **Config**: `data/config.db` (SQLite) – preferências de anos e UFs; criado ao usar Configurações.
+> Para detalhes, veja o [guia completo de Configurações](docs/guia-usuario/configuracoes.md).
 
-Nenhuma dessas pastas nem os arquivos de dados (`.parquet`, `.duckdb`, `config.db`) precisam ser versionados; o `.gitignore` já os exclui.
+### 2. Download e processamento
 
-## Agente Text-to-SQL
+Em **SIM → Download de Dados**:
+1. Clique em **Baixar** para obter os dados do FTP.
+2. Rode o **processamento silver** e depois **construa a gold**.
+3. Pronto — as demais abas ficam habilitadas.
 
-O módulo de **consulta em linguagem natural** usa um agente que transforma perguntas em português em consultas SQL sobre a view `v_obitos_completo`, executa e devolve a resposta em texto.
+<!-- TODO: Screenshot da tela Download -->
 
-- **Provedores**: Google (Gemini), Groq (Llama) ou Ollama (local). Configure em **Configurações**.
-- **Guardrail**: perguntas fora do tema (óbitos, mortalidade, SIM) são rejeitadas sem chamar o modelo.
-- **Contexto**: o agente resolve lugar (município/UF) e causa (doença/capítulo CID-10) a partir da pergunta e injeta valores canônicos na SQL (evita ILIKE e códigos inventados).
-- **Schema e cache**: colunas e exemplos de valores vêm da própria view; um único aquecimento de cache (uma conexão DuckDB) alimenta schema, exemplos e lista de municípios, reduzindo consultas repetidas.
+> Para detalhes, veja o [guia de Download de Dados](docs/guia-usuario/download-dados.md).
 
-### Grafo do modelo (LangGraph)
+### 3. Análise exploratória
 
-Fluxo do agente: extração de lugar → resolução de causa → planejamento (geração de SQL) → execução (EXPLAIN + query na mesma conexão) → avaliação e resposta; em caso de erro de SQL ou resposta inadequada, o fluxo pode voltar ao planejamento (replan) até um limite de tentativas.
+Em **SIM → Análise Exploratória**, aplique filtros e explore os gráficos interativos:
+- Série temporal (anual ou mensal)
+- Ranking de causas de morte
+- Óbitos por estado ou município
+- Pirâmide etária
 
-```mermaid
-flowchart LR
-    subgraph entrada
-        START([Início])
-    end
-    subgraph resolução
-        A[extract_place]
-        B[resolve_cause]
-    end
-    subgraph planejamento
-        C[plan]
-    end
-    subgraph execução
-        D[execute]
-    end
-    subgraph avaliação
-        E[evaluate_and_respond]
-    end
-    subgraph saída
-        F[give_up]
-        G[respond]
-        END([Fim])
-    end
+<!-- TODO: Screenshot da Análise Exploratória -->
 
-    START --> A
-    A --> B
-    B --> C
-    C --> D
-    D -->|sql_validation_ok| E
-    D -->|replan| C
-    D -->|give_up| F
-    E -->|OK| G
-    E -->|REPLAN| C
-    F --> G
-    G --> END
+> Para detalhes, veja o [guia de Análise Exploratória](docs/guia-usuario/analise-exploratoria.md).
+
+### 4. Consultar com IA
+
+Em **SIM → Consultar com IA**, digite perguntas como:
+- *"Quantos óbitos por dengue em 2023?"*
+- *"Quais as 5 principais causas de morte no Paraná?"*
+
+O agente gera a SQL, executa e mostra a resposta com a query para auditoria.
+
+<!-- TODO: GIF demonstração -->
+
+> Para detalhes, veja o [guia de Consulta com IA](docs/guia-usuario/consultar-ia.md).
+
+### 5. Editor SQL
+
+Em **SIM → Editor SQL**, execute consultas diretamente na view `v_obitos_completo`. Use as consultas prontas ou escreva a sua.
+
+<!-- TODO: Screenshot do Editor SQL -->
+
+> Para detalhes, veja o [guia do Editor SQL](docs/guia-usuario/editor-sql.md).
+
+### 6. Previsão de óbitos
+
+Em **SIM → Previsão do número de mortes**, configure filtros, frequência (anual/mensal) e horizonte. O pipeline testa múltiplos modelos e seleciona o melhor automaticamente.
+
+<!-- TODO: Screenshot da Previsão -->
+
+> Para detalhes, veja o [guia de Previsão de Óbitos](docs/guia-usuario/previsao-obitos.md).
+
+---
+
+## Documentação completa
+
+A documentação técnica e os guias detalhados estão na pasta `docs/`:
+
+- **[Índice da documentação](docs/README.md)** — Guia do usuário e documentação técnica.
+
+---
+
+## Estrutura do projeto
+
+```
+DatasusBrasileiroApp/
+├── app.py                    # Ponto de entrada Streamlit
+├── pages/                    # Páginas do app (uma por aba)
+├── src/
+│   ├── agent/                # Agente Text-to-SQL (LangGraph)
+│   ├── config/               # Persistência e chaves
+│   ├── data_extraction/      # FTP, processamento e gold
+│   └── forecasting/          # MortalityForecaster
+├── data/                     # Dados (não versionado)
+├── docs/                     # Documentação completa
+├── Dockerfile                # Container Docker
+├── docker-compose.yml        # Compose com persistência
+└── requirements.txt          # Dependências Python
 ```
 
-**Nós:**
-
-| Nó | Descrição |
-|----|-----------|
-| `extract_place` | Extrai menção a lugar (cidade/estado) da pergunta e resolve para município/UF canônicos (valores da view). |
-| `resolve_cause` | Identifica menção a causa/doença e obtém códigos CID-10 ou capítulo (ex.: “doenças cardiovasculares” → `causa_cid10_capitulo_desc IN ('Capítulo IX - ...')`). |
-| `plan` | LLM gera uma única query SQL (SELECT) a partir do schema da view, contexto de lugar e de causa. |
-| `execute` | Valida a SQL com EXPLAIN e executa na mesma conexão DuckDB; em falha, retorna feedback para replan. |
-| `evaluate_and_respond` | LLM avalia se o resultado responde à pergunta e formata a resposta ou pede REPLAN. |
-| `give_up` | Após limite de tentativas ou erro fatal, encerra com mensagem ao usuário. |
-| `respond` | Retorna a resposta final e encerra o grafo. |
-
-## Fluxo recomendado
-
-1. Abra **Configurações** e defina anos e UFs desejados; se for usar o agente Text-to-SQL, configure provedor e chave de API.
-2. Em **SIM → Download de Dados**, baixe os arquivos e rode o processamento (silver e gold).
-3. Use **Análise Exploratória** para filtrar e visualizar óbitos (série temporal, causas, território, pirâmide etária) ou **Consulta em linguagem natural** para perguntas em texto.
+---
 
 ## Licença
 

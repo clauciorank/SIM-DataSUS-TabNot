@@ -180,6 +180,40 @@ def resolve_municipality(
     return [r[0] for r in results] if results else []
 
 
+# Frases que indicam escopo nacional (todos os estados / Brasil inteiro)
+_NATIONWIDE_PATTERNS = [
+    r"\btodos\s+os\s+estados\b",
+    r"\ball\s+states\b",  # inglês
+    r"\btodo\s+o\s+brasil\b",
+    r"\btodo\s+o\s+pa[íi]s\b",
+    r"\bem\s+todo\s+o\s+pa[íi]s\b",
+    r"\bem\s+todo\s+o\s+brasil\b",
+    r"\bno\s+brasil\s+inteiro\b",
+    r"\bbrasil\s+inteiro\b",
+    r"\bescopo\s+nacional\b",
+    r"\bnacional\b",  # ex.: "dados nacionais"
+    r"\bconsiderando\s+todos\s+os\s+estados\b",
+    r"\bconsidere\s+todos\s+os\s+estados\b",
+    r"\bsomando\s+todos\s+os\s+estados\b",
+    r"\bem\s+todos\s+os\s+estados\b",
+    r"\bpor\s+todo\s+o\s+brasil\b",
+]
+
+
+def is_nationwide_scope(pergunta: str) -> bool:
+    """
+    Detecta se a pergunta pede explicitamente escopo nacional (todos os estados / Brasil inteiro).
+    Usado para injetar contexto explícito no plano e evitar que o agente filtre por lugar.
+    """
+    if not pergunta or len(pergunta.strip()) < 10:
+        return False
+    low = f" {pergunta.strip().lower()} "
+    for pat in _NATIONWIDE_PATTERNS:
+        if re.search(pat, low, re.IGNORECASE):
+            return True
+    return False
+
+
 def extract_place_heuristic(pergunta: str) -> str:
     """
     Extrai candidato a 'frase de lugar' da pergunta sem usar IA (economiza quota).

@@ -13,7 +13,6 @@ if not _agent_logger.handlers:
 # 1. Definição das páginas
 # O primeiro argumento é o caminho do arquivo, o segundo é o título exibido
 configuration = st.Page("pages/configuration.py", title="Configurações", icon="⚙️")
-
 pg_sim_download = st.Page("pages/SIM/SIM_download.py", title="Download de Dados", icon="⬇️")
 pg_sim_analise = st.Page("pages/SIM/SIM_analise.py", title="Análise Exploratória", icon="📊")
 pg_sim_sql = st.Page("pages/SIM/SIM_sql.py", title="Editor SQL", icon="📝")
@@ -32,6 +31,10 @@ navegacao = st.navigation({
     "SIM": sim_pages,
 })
 
-# 3. Execução
+# 3. Rodapé da barra lateral (ícones GitHub e LinkedIn)
+from src.utils.sidebar_footer import render_sidebar_footer
+render_sidebar_footer()
+
+# 4. Execução
 st.set_page_config(page_title="SIM DataSUS TabNot", layout="wide", page_icon = '⚕️')
 navegacao.run()

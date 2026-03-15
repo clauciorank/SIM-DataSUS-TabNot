@@ -116,7 +116,8 @@ if need_mun or need_causas:
         causas_labels = _opts_causas_silver(con, list(cap_para_cascade))
         st.session_state[FC_CACHE_CAUSAS_LABELS] = causas_labels
         st.session_state[FC_CACHE_CAUSAS_CAP_KEY] = causas_cap_key
-        st.session_state["forecast_causa"] = []
+        # Limpar seleção de causa sem conflitar com o widget: remover a chave para o multiselect usar default=[]
+        st.session_state.pop("forecast_causa", None)
     else:
         causas_labels = st.session_state.get(FC_CACHE_CAUSAS_LABELS, [])
 else:
