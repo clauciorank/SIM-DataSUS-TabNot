@@ -2,6 +2,18 @@
 
 # SIM DataSUS
 
+![Streamlit](https://img.shields.io/badge/Streamlit-FF1B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![DuckDB](https://img.shields.io/badge/DuckDB-003B57?style=for-the-badge&logo=duckdb&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-0A84FF?style=for-the-badge&logo=langgraph&logoColor=white)
+![Plotly](https://img.shields.io/badge/Plotly-3F4D66?style=for-the-badge&logo=plotly&logoColor=white)
+
+![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)
+![Anthropic](https://img.shields.io/badge/Anthropic-000000?style=for-the-badge&logo=anthropic&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white)
+
+![XGBoost](https://img.shields.io/badge/XGBoost-000000?style=for-the-badge&logo=xgboost&logoColor=white)
+
 Análise de mortalidade do Brasil com IA, forecasting, SQL e gráficos interativos
 
 
