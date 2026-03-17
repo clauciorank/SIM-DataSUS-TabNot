@@ -1,3 +1,5 @@
+build-essential 
+python3-dev
 aioftp==0.21.4
 altair==6.0.0
 annotated-types==0.7.0
