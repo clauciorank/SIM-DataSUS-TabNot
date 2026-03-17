@@ -12,7 +12,7 @@ DOENCAS_CONHECIDAS: List[Tuple[str, str, str]] = [
     ("covid", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
     ("covid-19", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
     ("sars-cov", "U071, U072  B342", "COVID-19, vírus identificado (confirmado laboratorialmente)., COVID-19, vírus não identificado (diagnóstico clínico/epidemiológico)., Infecção por coronavírus de localização não especificada."),
-    ("dengue", "A90", "Dengue"),
+    ("dengue", "A90, A91", "Dengue"),
     ("dengue hemorrágica", "A91", "Dengue hemorrágico"),
     ("infarto", "I21", "Infarto agudo do miocárdio"),
     ("iam", "I21", "Infarto"),
