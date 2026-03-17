@@ -64,7 +64,7 @@ https://github.com/user-attachments/assets/ddebcf9d-0e50-4351-b611-42c97e8ce259
 
 ```bash
 git clone https://github.com/clauciorank/SIM-DataSUS-TabNot
-cd DatasusBrasileiroApp
+cd SIM-DataSUS-TabNot
 docker compose up
 ```
 
@@ -74,7 +74,7 @@ Acesse **[http://localhost:8501](http://localhost:8501)**. Os dados ficam persis
 
 ```bash
 git clone https://github.com/clauciorank/SIM-DataSUS-TabNot
-cd DatasusBrasileiroApp
+cd SIM-DataSUS-TabNot
 
 python3 -m venv .venv
 source .venv/bin/activate   # Linux/macOS
