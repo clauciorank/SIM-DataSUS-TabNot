@@ -36,17 +36,25 @@ Por enquanto o sistema deve ser executado localmente (pq máquina em nuvem e tok
 
 - **Análise exploratória** — Filtros por período, sexo, faixa etária, UF, município e causa; gráficos de série temporal, causas, território e pirâmide etária.
 
+https://github.com/user-attachments/assets/27111254-b630-4581-af7d-4d0facc75aa8
+
 
 
 - **Consulta com IA** — Perguntas em português sobre os dados; o agente gera SQL automaticamente e devolve respostas auditáveis.
 
+https://github.com/user-attachments/assets/0ad36030-cd48-44c3-9b7b-05186aa26879
 
 
 - **Editor SQL** — Consultas diretas à view analítica `v_obitos_completo` (DuckDB).
 
 
+https://github.com/user-attachments/assets/09a321f6-25db-45ff-a703-f0cb9ba726d2
+
 
 - **Previsão de óbitos** — Forecasting com pipeline automático que testa ARIMA, ETS, XGBoost e média móvel, selecionando o melhor modelo.
+
+https://github.com/user-attachments/assets/ddebcf9d-0e50-4351-b611-42c97e8ce259
+
 
 ---
 
