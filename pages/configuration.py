@@ -76,7 +76,7 @@ if provider_choice == "gemini":
         format_func=lambda mid: next((d for m, d in gemini_models if m == mid), mid),
         index=min(default_idx, len(gemini_models) - 1) if gemini_models else 0,
         key="config_llm_model",
-        help="Modelos de texto (chat). Flash Lite costuma ter melhor quota no free tier.",
+        help="Modelos de texto (chat)",
     )
     if has_gemini_key and not api_key_input.strip():
         st.info("Uma chave API já está configurada. Digite uma nova acima para substituir e clique em Salvar.")
